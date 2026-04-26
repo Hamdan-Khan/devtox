@@ -7,5 +7,6 @@ edition = "2024"
 ratatui = "0.30.0"
 color-eyre = "0.6.3"
 crossterm = "0.29.0"
+jwalk = "0.8.1"
 
 

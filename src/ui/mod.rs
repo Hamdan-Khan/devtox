@@ -1,5 +1,7 @@
-use crate::app::{App, PanelFocus};
-use crossterm::style;
+use crate::{
+    app::{App, PanelFocus},
+    utils::format_size_str,
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -28,7 +30,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     render_languages(frame, app, lang_area);
     render_artifacts(frame, app, artifact_area);
     render_results_placeholder(frame, app, results_area);
-    render_stats(frame, stats_area);
+    render_stats(frame, app, stats_area);
 }
 
 fn render_languages(frame: &mut Frame, app: &App, area: Rect) {
@@ -100,11 +102,13 @@ fn render_results_placeholder(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 // stats to show at the bottom, when scanned (stubs for now)
-fn render_stats(frame: &mut Frame, area: Rect) {
+fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
+    let total_size = format_size_str(app.scan_result.total_size as f64);
+
     let stats_line = Line::from(vec![
         Span::styled(" Total found: ", Style::default().fg(Color::Gray)),
         Span::styled(
-            "—",
+            total_size,
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),

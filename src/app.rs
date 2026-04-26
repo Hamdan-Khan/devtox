@@ -3,6 +3,7 @@ use crate::{
     ui::draw,
 };
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use jwalk::WalkDir;
 use ratatui::DefaultTerminal;
 use std::io;
 
@@ -48,11 +49,19 @@ pub enum PanelFocus {
     Artifacts,
 }
 
+#[derive(Default)]
+pub struct ScanResult {
+    pub total_size: u64,
+    pub symlink_count: u64,
+    pub error_count: u64,
+}
+
 pub struct App {
     pub language_list: StatefulList<Language>,
     pub artifact_list: StatefulList<ArtifactKind>,
     pub focus: PanelFocus,
     pub exit: bool,
+    pub scan_result: ScanResult,
 }
 
 impl App {
@@ -65,6 +74,7 @@ impl App {
             artifact_list: StatefulList::new(initial_artifacts),
             focus: PanelFocus::Languages,
             exit: false,
+            scan_result: ScanResult::default(),
         }
     }
 
@@ -84,6 +94,7 @@ impl App {
             }
             match key.code {
                 KeyCode::Char('q') => self.exit = true,
+                KeyCode::Char('s') => self.scan_dir(),
                 KeyCode::Tab => self.cycle_focus(),
                 KeyCode::Down => self.on_down(),
                 KeyCode::Up => self.on_up(),
@@ -101,6 +112,36 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    fn scan_dir(&mut self) {
+        let mut total_size: u64 = 0;
+        let mut symlink_count: u64 = 0;
+        let mut error_count: u64 = 0;
+
+        for entry in WalkDir::new("/home/hamdan/Documents/Development/rust/devtox") {
+            match entry {
+                Ok(entry) => {
+                    if let Ok(metadata) = entry.metadata() {
+                        if metadata.is_symlink() {
+                            symlink_count += 1;
+                        };
+                        let size = metadata.len();
+                        total_size += size;
+                    }
+                }
+                Err(err) => {
+                    error_count += 1;
+                    eprintln!("Error processing file {:?}", err)
+                }
+            }
+        }
+
+        self.scan_result = ScanResult {
+            total_size,
+            symlink_count,
+            error_count,
+        }
     }
 
     // to move focus across different panels when tab key is pressed

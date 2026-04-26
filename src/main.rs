@@ -1,6 +1,7 @@
 mod app;
 mod model;
 mod ui;
+mod utils;
 
 use std::io::Error;
 
