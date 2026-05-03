@@ -5,7 +5,7 @@ use crate::{
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use jwalk::WalkDir;
 use ratatui::DefaultTerminal;
-use std::io;
+use std::{io, thread, time};
 
 // stateful wrapper around vector to keep track of the selected item
 // (will use in languages and artifacts sections for now)
@@ -56,12 +56,22 @@ pub struct ScanResult {
     pub error_count: u64,
 }
 
+pub enum ScanState {
+    Idle,
+    Confirmation,
+    InProgress,
+    Error,
+    Completed,
+}
+
 pub struct App {
     pub language_list: StatefulList<Language>,
     pub artifact_list: StatefulList<ArtifactKind>,
     pub focus: PanelFocus,
     pub exit: bool,
     pub scan_result: ScanResult,
+    pub scan_state: ScanState,
+    pub selected_entry_dir: String,
 }
 
 impl App {
@@ -75,6 +85,8 @@ impl App {
             focus: PanelFocus::Languages,
             exit: false,
             scan_result: ScanResult::default(),
+            scan_state: ScanState::Idle,
+            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
         }
     }
 
@@ -94,7 +106,18 @@ impl App {
             }
             match key.code {
                 KeyCode::Char('q') => self.exit = true,
-                KeyCode::Char('s') => self.scan_dir(),
+                KeyCode::Char('s') => match self.scan_state {
+                    ScanState::Idle => self.scan_state = ScanState::Confirmation,
+                    _ => {}
+                },
+                KeyCode::Char('y') => match self.scan_state {
+                    ScanState::Confirmation => self.scan_dir(),
+                    _ => {}
+                },
+                KeyCode::Char('n') => match self.scan_state {
+                    ScanState::Confirmation => self.scan_state = ScanState::Idle,
+                    _ => {}
+                },
                 KeyCode::Tab => self.cycle_focus(),
                 KeyCode::Down => self.on_down(),
                 KeyCode::Up => self.on_up(),
@@ -115,11 +138,12 @@ impl App {
     }
 
     fn scan_dir(&mut self) {
+        self.scan_state = ScanState::InProgress;
         let mut total_size: u64 = 0;
         let mut symlink_count: u64 = 0;
         let mut error_count: u64 = 0;
 
-        for entry in WalkDir::new("/home/hamdan/Documents/Development/rust/devtox") {
+        for entry in WalkDir::new(&self.selected_entry_dir) {
             match entry {
                 Ok(entry) => {
                     if let Ok(metadata) = entry.metadata() {
@@ -136,6 +160,11 @@ impl App {
                 }
             }
         }
+
+        let delay = time::Duration::from_secs(1);
+        thread::sleep(delay);
+
+        self.scan_state = ScanState::Completed;
 
         self.scan_result = ScanResult {
             total_size,

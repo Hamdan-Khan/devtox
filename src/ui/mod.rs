@@ -1,5 +1,5 @@
 use crate::{
-    app::{App, PanelFocus},
+    app::{App, PanelFocus, ScanState},
     utils::format_size_str,
 };
 use ratatui::{
@@ -29,7 +29,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     render_languages(frame, app, lang_area);
     render_artifacts(frame, app, artifact_area);
-    render_results_placeholder(frame, app, results_area);
+    render_scan_screen(frame, app, results_area);
     render_stats(frame, app, stats_area);
 }
 
@@ -81,16 +81,39 @@ fn render_artifacts(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn render_results_placeholder(frame: &mut Frame, app: &App, area: Rect) {
+fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
     let description = match (
         app.language_list.selected_item(),
         app.artifact_list.selected_item(),
     ) {
-        (Some(lang), Some(artifact)) => format!(
-            "Ready to scan for '{}' ({}) directories.\nPress <s> to start scan.",
-            artifact.display_name(),
-            lang.display_name()
-        ),
+        (Some(lang), Some(artifact)) => match app.scan_state {
+            ScanState::Idle => {
+                format!(
+                    "Ready to scan for '{}' ({}) directories.\nPress <s> to start scan.",
+                    artifact.display_name(),
+                    lang.display_name()
+                )
+            }
+            ScanState::Confirmation => {
+                format!(
+                    "Are you sure you want to scan for all the '{}' directories in '{}'.\nPress <y> / <n> to proceed / abort.",
+                    artifact.display_name(),
+                    app.selected_entry_dir
+                )
+            }
+            ScanState::InProgress => {
+                // todo: not working for some reason
+                format!("Scanning '{}' ...", app.selected_entry_dir)
+            }
+            ScanState::Completed => {
+                format!(
+                    "Successfully scanned '{}' for '{}'!",
+                    artifact.display_name(),
+                    app.selected_entry_dir
+                )
+            }
+            ScanState::Error => String::from("Couldn't scan due to an error."),
+        },
         _ => "Select a language and artifact type to scan.".to_string(),
     };
 
