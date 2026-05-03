@@ -102,10 +102,9 @@ fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
                 )
             }
             ScanState::InProgress => {
-                // todo: not working for some reason
                 format!("Scanning '{}' ...", app.selected_entry_dir)
             }
-            ScanState::Completed => {
+            ScanState::Completed(_) => {
                 format!(
                     "Successfully scanned '{}' for '{}'!",
                     artifact.display_name(),

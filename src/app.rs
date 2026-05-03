@@ -5,7 +5,12 @@ use crate::{
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use jwalk::WalkDir;
 use ratatui::DefaultTerminal;
-use std::{io, thread, time};
+use std::{
+    io,
+    sync::mpsc::{self, Receiver},
+    thread,
+    time::{self, Duration},
+};
 
 // stateful wrapper around vector to keep track of the selected item
 // (will use in languages and artifacts sections for now)
@@ -47,6 +52,7 @@ impl<T> StatefulList<T> {
 pub enum PanelFocus {
     Languages,
     Artifacts,
+    // todo: add focus for scan panel
 }
 
 #[derive(Default)]
@@ -61,7 +67,7 @@ pub enum ScanState {
     Confirmation,
     InProgress,
     Error,
-    Completed,
+    Completed(ScanResult),
 }
 
 pub struct App {
@@ -72,6 +78,7 @@ pub struct App {
     pub scan_result: ScanResult,
     pub scan_state: ScanState,
     pub selected_entry_dir: String,
+    scan_recv: Option<Receiver<ScanState>>,
 }
 
 impl App {
@@ -87,11 +94,13 @@ impl App {
             scan_result: ScanResult::default(),
             scan_state: ScanState::Idle,
             selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
+            scan_recv: None,
         }
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         while !self.exit {
+            self.handle_scan_events();
             terminal.draw(|frame| draw(frame, self))?;
             self.handle_events()?;
         }
@@ -99,78 +108,101 @@ impl App {
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
-        if let Event::Key(key) = event::read()? {
-            // only handle key press, not release
-            if key.kind != KeyEventKind::Press {
-                return Ok(());
-            }
-            match key.code {
-                KeyCode::Char('q') => self.exit = true,
-                KeyCode::Char('s') => match self.scan_state {
-                    ScanState::Idle => self.scan_state = ScanState::Confirmation,
-                    _ => {}
-                },
-                KeyCode::Char('y') => match self.scan_state {
-                    ScanState::Confirmation => self.scan_dir(),
-                    _ => {}
-                },
-                KeyCode::Char('n') => match self.scan_state {
-                    ScanState::Confirmation => self.scan_state = ScanState::Idle,
-                    _ => {}
-                },
-                KeyCode::Tab => self.cycle_focus(),
-                KeyCode::Down => self.on_down(),
-                KeyCode::Up => self.on_up(),
-                KeyCode::Enter | KeyCode::Right => {
-                    if self.focus == PanelFocus::Languages {
-                        self.focus = PanelFocus::Artifacts;
-                    }
+        if event::poll(Duration::from_millis(16))? {
+            if let Event::Key(key) = event::read()? {
+                // only handle key press, not release
+                if key.kind != KeyEventKind::Press {
+                    return Ok(());
                 }
-                KeyCode::Left | KeyCode::Esc => {
-                    if self.focus == PanelFocus::Artifacts {
-                        self.focus = PanelFocus::Languages;
+                match key.code {
+                    KeyCode::Char('q') => self.exit = true,
+                    KeyCode::Char('s') => match self.scan_state {
+                        ScanState::Idle => self.scan_state = ScanState::Confirmation,
+                        _ => {}
+                    },
+                    KeyCode::Char('y') => match self.scan_state {
+                        ScanState::Confirmation => self.scan_dir(),
+                        _ => {}
+                    },
+                    KeyCode::Char('n') => match self.scan_state {
+                        ScanState::Confirmation => self.scan_state = ScanState::Idle,
+                        _ => {}
+                    },
+                    KeyCode::Tab => self.cycle_focus(),
+                    KeyCode::Down => self.on_down(),
+                    KeyCode::Up => self.on_up(),
+                    KeyCode::Enter | KeyCode::Right => {
+                        if self.focus == PanelFocus::Languages {
+                            self.focus = PanelFocus::Artifacts;
+                        }
                     }
+                    KeyCode::Left | KeyCode::Esc => {
+                        if self.focus == PanelFocus::Artifacts {
+                            self.focus = PanelFocus::Languages;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         Ok(())
     }
 
-    fn scan_dir(&mut self) {
-        self.scan_state = ScanState::InProgress;
-        let mut total_size: u64 = 0;
-        let mut symlink_count: u64 = 0;
-        let mut error_count: u64 = 0;
+    fn handle_scan_events(&mut self) {
+        if let Some(rx) = &self.scan_recv {
+            if let Ok(scan_state) = rx.try_recv() {
+                if let ScanState::Completed(s) = scan_state {
+                    self.scan_result = s;
+                    self.scan_state = ScanState::Completed(ScanResult::default());
+                } else {
+                    self.scan_state = scan_state;
+                }
+            };
+        }
+    }
 
-        for entry in WalkDir::new(&self.selected_entry_dir) {
-            match entry {
-                Ok(entry) => {
-                    if let Ok(metadata) = entry.metadata() {
-                        if metadata.is_symlink() {
-                            symlink_count += 1;
-                        };
-                        let size = metadata.len();
-                        total_size += size;
+    fn scan_dir(&mut self) {
+        // to not block main thread, we offload directory scanning to a spawned thread
+        // and to access the scan state from the main thread, we use a channel
+        let (tx, rx) = mpsc::channel::<ScanState>();
+        self.scan_recv = Some(rx);
+
+        let dir = self.selected_entry_dir.clone();
+
+        thread::spawn(move || {
+            tx.send(ScanState::InProgress).ok();
+            let mut total_size: u64 = 0;
+            let mut symlink_count: u64 = 0;
+            let mut error_count: u64 = 0;
+
+            for entry in WalkDir::new(dir) {
+                match entry {
+                    Ok(entry) => {
+                        if let Ok(metadata) = entry.metadata() {
+                            if metadata.is_symlink() {
+                                symlink_count += 1;
+                            };
+                            let size = metadata.len();
+                            total_size += size;
+                        }
+                    }
+                    Err(err) => {
+                        error_count += 1;
+                        eprintln!("Error processing file {:?}", err)
                     }
                 }
-                Err(err) => {
-                    error_count += 1;
-                    eprintln!("Error processing file {:?}", err)
-                }
             }
-        }
 
-        let delay = time::Duration::from_secs(1);
-        thread::sleep(delay);
+            let delay = time::Duration::from_secs(1);
+            thread::sleep(delay);
 
-        self.scan_state = ScanState::Completed;
-
-        self.scan_result = ScanResult {
-            total_size,
-            symlink_count,
-            error_count,
-        }
+            tx.send(ScanState::Completed(ScanResult {
+                total_size,
+                symlink_count,
+                error_count,
+            }))
+            .ok();
+        });
     }
 
     // to move focus across different panels when tab key is pressed
