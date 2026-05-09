@@ -11,9 +11,11 @@ use std::{
     thread,
     time::{self, Duration},
 };
+use tracing::{error, info};
 
 // stateful wrapper around vector to keep track of the selected item
 // (will use in languages and artifacts sections for now)
+#[derive(Clone)]
 pub struct StatefulList<T> {
     pub items: Vec<T>,
     pub selected: usize,
@@ -93,7 +95,9 @@ impl App {
             exit: false,
             scan_result: ScanResult::default(),
             scan_state: ScanState::Idle,
-            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
+            selected_entry_dir: String::from(
+                "/home/hamdan/Documents/Development/rust/devtox/node_modules",
+            ),
             scan_recv: None,
         }
     }
@@ -168,41 +172,52 @@ impl App {
         self.scan_recv = Some(rx);
 
         let dir = self.selected_entry_dir.clone();
+        let artifact = self.artifact_list.selected_item().cloned();
 
-        thread::spawn(move || {
-            tx.send(ScanState::InProgress).ok();
-            let mut total_size: u64 = 0;
-            let mut symlink_count: u64 = 0;
-            let mut error_count: u64 = 0;
+        if let Some(artifact) = artifact {
+            thread::spawn(move || {
+                tx.send(ScanState::InProgress).ok();
+                let mut total_size: u64 = 0;
+                let mut symlink_count: u64 = 0;
+                let mut error_count: u64 = 0;
 
-            for entry in WalkDir::new(dir) {
-                match entry {
-                    Ok(entry) => {
-                        if let Ok(metadata) = entry.metadata() {
-                            if metadata.is_symlink() {
-                                symlink_count += 1;
-                            };
-                            let size = metadata.len();
-                            total_size += size;
+                for entry in WalkDir::new(dir) {
+                    match entry {
+                        Ok(entry) => {
+                            entry.depth();
+                            if let Ok(metadata) = entry.metadata() {
+                                let is_target_dir = artifact.display_name() == entry.file_name();
+                                info!("{:?}", entry.file_name());
+                                if metadata.is_dir() && is_target_dir {
+                                    let size = metadata.len();
+                                    total_size += size;
+                                }
+                                if metadata.is_symlink() {
+                                    symlink_count += 1;
+                                };
+                            }
+                        }
+                        Err(err) => {
+                            error_count += 1;
+                            error!("Error processing file {:?}", err)
                         }
                     }
-                    Err(err) => {
-                        error_count += 1;
-                        eprintln!("Error processing file {:?}", err)
-                    }
                 }
-            }
 
-            let delay = time::Duration::from_secs(1);
-            thread::sleep(delay);
+                // for testing
+                let delay = time::Duration::from_secs(1);
+                thread::sleep(delay);
 
-            tx.send(ScanState::Completed(ScanResult {
-                total_size,
-                symlink_count,
-                error_count,
-            }))
-            .ok();
-        });
+                tx.send(ScanState::Completed(ScanResult {
+                    total_size,
+                    symlink_count,
+                    error_count,
+                }))
+                .ok();
+            });
+        } else {
+            tx.send(ScanState::Error).ok();
+        }
     }
 
     // to move focus across different panels when tab key is pressed
