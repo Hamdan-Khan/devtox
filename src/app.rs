@@ -3,7 +3,7 @@ use crate::{
     ui::draw,
 };
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use jwalk::WalkDir;
+use jwalk::{DirEntry, Error, WalkDir};
 use ratatui::DefaultTerminal;
 use std::{
     io,
@@ -95,9 +95,7 @@ impl App {
             exit: false,
             scan_result: ScanResult::default(),
             scan_state: ScanState::Idle,
-            selected_entry_dir: String::from(
-                "/home/hamdan/Documents/Development/rust/devtox/node_modules",
-            ),
+            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
             scan_recv: None,
         }
     }
@@ -180,33 +178,24 @@ impl App {
                 let mut total_size: u64 = 0;
                 let mut symlink_count: u64 = 0;
                 let mut error_count: u64 = 0;
+                let mut is_target_dir: bool = false;
+                let mut depth: usize = 0;
 
                 for entry in WalkDir::new(dir) {
-                    match entry {
-                        Ok(entry) => {
-                            entry.depth();
-                            if let Ok(metadata) = entry.metadata() {
-                                let is_target_dir = artifact.display_name() == entry.file_name();
-                                info!("{:?}", entry.file_name());
-                                if metadata.is_dir() && is_target_dir {
-                                    let size = metadata.len();
-                                    total_size += size;
-                                }
-                                if metadata.is_symlink() {
-                                    symlink_count += 1;
-                                };
-                            }
-                        }
-                        Err(err) => {
-                            error_count += 1;
-                            error!("Error processing file {:?}", err)
-                        }
-                    }
+                    Self::calculate_stats(
+                        entry,
+                        artifact.clone(),
+                        &mut total_size,
+                        &mut symlink_count,
+                        &mut error_count,
+                        &mut is_target_dir,
+                        &mut depth,
+                    );
                 }
 
                 // for testing
-                let delay = time::Duration::from_secs(1);
-                thread::sleep(delay);
+                // let delay = time::Duration::from_secs(1);
+                // thread::sleep(delay);
 
                 tx.send(ScanState::Completed(ScanResult {
                     total_size,
@@ -217,6 +206,55 @@ impl App {
             });
         } else {
             tx.send(ScanState::Error).ok();
+        }
+    }
+
+    fn calculate_stats(
+        entry: Result<DirEntry<((), ())>, Error>,
+        artifact: ArtifactKind,
+        total_size: &mut u64,
+        symlink_count: &mut u64,
+        error_count: &mut u64,
+        is_target_dir: &mut bool,
+        depth: &mut usize,
+    ) {
+        match entry {
+            Ok(entry) => {
+                if let Ok(metadata) = entry.metadata() {
+                    let is_target =
+                        artifact.display_name() == entry.file_name() && metadata.is_dir();
+                    // update global flags
+                    if is_target {
+                        // todo: handle cases like target dir inside target dir, which one's depth should be kept in the global var?
+                        *is_target_dir = true;
+                        *depth = entry.depth;
+                    }
+                    // disable flags when encounter siblings of the target directory i.e. same depth but not the target directory
+                    // this won't disable global flags for the target directory itself
+                    if !is_target && *depth == entry.depth {
+                        *is_target_dir = false;
+                    }
+                    // disable flag when encounter a parent of the target directory
+                    if *is_target_dir && *depth > entry.depth {
+                        *is_target_dir = false;
+                    }
+                    // child, if its depth is strictly greater than the target directory
+                    // and walker encounters it after the target directory
+                    let is_child = *is_target_dir && entry.depth > *depth;
+
+                    if is_child {
+                        info!("{:?}, {}", entry.file_name(), entry.depth);
+                        *total_size += metadata.len();
+                        if metadata.is_symlink() {
+                            *symlink_count += 1;
+                        };
+                    }
+                }
+            }
+            Err(err) => {
+                *error_count += 1;
+                error!("Error processing file {:?}", err)
+            }
         }
     }
 
