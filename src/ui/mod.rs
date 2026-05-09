@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph},
 };
 
 // basically 1. splits the frame into rects (i.e. sections) and
@@ -81,34 +81,48 @@ fn render_artifacts(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
+fn keybind_line(key: &str, desc: &str) -> String {
+    format!("{:<7} {}", key, desc)
+}
+
 fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
+    const SPINNER_STATES: &[&str] = &["⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"];
+
     let description = match (
         app.language_list.selected_item(),
         app.artifact_list.selected_item(),
     ) {
         (Some(lang), Some(artifact)) => match app.scan_state {
-            ScanState::Idle => {
-                format!(
-                    "Ready to scan for '{}' ({}) directories.\nPress <s> to start scan.",
-                    artifact.display_name(),
-                    lang.display_name()
-                )
-            }
+            ScanState::Idle => format!(
+                "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}",
+                artifact.display_name(),
+                lang.display_name(),
+                keybind_line("<s>", "start scan"),
+                keybind_line("<Tab>", "switch selection panels"),
+                keybind_line("<Enter>", "select language / artifact"),
+                keybind_line("<Esc>", "go back to selection"),
+                keybind_line("<q>", "quit"),
+            ),
             ScanState::Confirmation => {
                 format!(
-                    "Are you sure you want to scan for all the '{}' directories in '{}'.\nPress <y> / <n> to proceed / abort.",
+                    "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}",
                     artifact.display_name(),
-                    app.selected_entry_dir
+                    app.selected_entry_dir,
+                    keybind_line("<y>", "to proceed"),
+                    keybind_line("<n>", "to abort"),
                 )
             }
             ScanState::InProgress => {
-                format!("Scanning '{}' ...", app.selected_entry_dir)
+                let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
+                let spinner = SPINNER_STATES[state_index];
+                format!("Scanning '{}' {}", app.selected_entry_dir, spinner)
             }
             ScanState::Completed(_) => {
                 format!(
-                    "Successfully scanned '{}' for '{}'!",
+                    "Successfully scanned '{}' for '{}'!\n\nPress\n{}",
+                    app.selected_entry_dir,
                     artifact.display_name(),
-                    app.selected_entry_dir
+                    keybind_line("<Esc>", "go back to selection and start a new scan session"),
                 )
             }
             ScanState::Error => String::from("Couldn't scan due to an error."),
@@ -116,14 +130,20 @@ fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
         _ => "Select a language and artifact type to scan.".to_string(),
     };
 
+    let focused = app.focus == PanelFocus::Results;
+    let text_color = if focused {
+        Color::White
+    } else {
+        Color::DarkGray
+    };
     let paragraph = Paragraph::new(description)
-        .block(styled_block("Results", false))
-        .style(Style::default().fg(Color::DarkGray));
+        .block(styled_block("Results", focused))
+        .style(Style::default().fg(text_color));
 
     frame.render_widget(paragraph, area);
 }
 
-// stats to show at the bottom, when scanned (stubs for now)
+// stats to show at the bottom, when scanned
 fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
     let total_size = format_size_str(app.scan_result.total_size as f64);
 
@@ -149,10 +169,6 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            "   [q] quit  [tab] switch panel  [s] scan",
-            Style::default().fg(Color::DarkGray),
-        ),
     ]);
 
     let paragraph = Paragraph::new(stats_line).block(Block::default().borders(Borders::ALL));
@@ -177,6 +193,7 @@ fn styled_block(title: &'_ str, focused: bool) -> Block<'_> {
         .borders(Borders::ALL)
         .border_style(border_style)
         .title(Span::styled(format!(" {title} "), title_style))
+        .padding(Padding::horizontal(1))
 }
 
 // selected list item style, gray/white when the panel is not focused, colorful otherwise

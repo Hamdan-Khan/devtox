@@ -54,16 +54,17 @@ impl<T> StatefulList<T> {
 pub enum PanelFocus {
     Languages,
     Artifacts,
-    // todo: add focus for scan panel
+    Results,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct ScanResult {
     pub total_size: u64,
     pub symlink_count: u64,
     pub error_count: u64,
 }
 
+#[derive(PartialEq)]
 pub enum ScanState {
     Idle,
     Confirmation,
@@ -81,6 +82,7 @@ pub struct App {
     pub scan_state: ScanState,
     pub selected_entry_dir: String,
     scan_recv: Option<Receiver<ScanState>>,
+    pub tick: u64,
 }
 
 impl App {
@@ -97,6 +99,7 @@ impl App {
             scan_state: ScanState::Idle,
             selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
             scan_recv: None,
+            tick: 0,
         }
     }
 
@@ -118,10 +121,13 @@ impl App {
                 }
                 match key.code {
                     KeyCode::Char('q') => self.exit = true,
-                    KeyCode::Char('s') => match self.scan_state {
-                        ScanState::Idle => self.scan_state = ScanState::Confirmation,
-                        _ => {}
-                    },
+                    KeyCode::Char('s') => {
+                        match self.scan_state {
+                            ScanState::Idle => self.scan_state = ScanState::Confirmation,
+                            _ => {}
+                        }
+                        self.focus = PanelFocus::Results
+                    }
                     KeyCode::Char('y') => match self.scan_state {
                         ScanState::Confirmation => self.scan_dir(),
                         _ => {}
@@ -133,19 +139,33 @@ impl App {
                     KeyCode::Tab => self.cycle_focus(),
                     KeyCode::Down => self.on_down(),
                     KeyCode::Up => self.on_up(),
-                    KeyCode::Enter | KeyCode::Right => {
-                        if self.focus == PanelFocus::Languages {
+                    KeyCode::Enter | KeyCode::Right => match self.focus {
+                        PanelFocus::Languages => {
                             self.focus = PanelFocus::Artifacts;
                         }
-                    }
-                    KeyCode::Left | KeyCode::Esc => {
+                        PanelFocus::Artifacts => {
+                            self.focus = PanelFocus::Results;
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Left => {
                         if self.focus == PanelFocus::Artifacts {
                             self.focus = PanelFocus::Languages;
+                        }
+                    }
+                    KeyCode::Esc => {
+                        if self.focus == PanelFocus::Results
+                            && self.scan_state != ScanState::InProgress
+                        {
+                            self.focus = PanelFocus::Languages;
+                            self.scan_state = ScanState::Idle;
                         }
                     }
                     _ => {}
                 }
             }
+        } else {
+            self.tick = self.tick.wrapping_add(1);
         }
         Ok(())
     }
@@ -194,8 +214,8 @@ impl App {
                 }
 
                 // for testing
-                // let delay = time::Duration::from_secs(1);
-                // thread::sleep(delay);
+                let delay = time::Duration::from_secs(5);
+                thread::sleep(delay);
 
                 tx.send(ScanState::Completed(ScanResult {
                     total_size,
@@ -263,6 +283,7 @@ impl App {
         self.focus = match self.focus {
             PanelFocus::Languages => PanelFocus::Artifacts,
             PanelFocus::Artifacts => PanelFocus::Languages,
+            PanelFocus::Results => PanelFocus::Results,
         };
     }
 
@@ -273,6 +294,7 @@ impl App {
                 self.refresh_artifacts();
             }
             PanelFocus::Artifacts => self.artifact_list.next(),
+            _ => {}
         }
     }
 
@@ -283,6 +305,7 @@ impl App {
                 self.refresh_artifacts();
             }
             PanelFocus::Artifacts => self.artifact_list.previous(),
+            _ => {}
         }
     }
 
