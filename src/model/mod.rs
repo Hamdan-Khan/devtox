@@ -2,17 +2,19 @@
 pub enum Language {
     Javascript,
     Python,
+    Custom,
 }
 
 impl Language {
     pub fn all() -> Vec<Language> {
-        vec![Language::Javascript, Language::Python]
+        vec![Language::Javascript, Language::Python, Language::Custom]
     }
 
     pub fn display_name(&self) -> &str {
         match self {
             Language::Javascript => "JavaScript",
             Language::Python => "Python",
+            Language::Custom => "Custom",
         }
     }
 
@@ -25,6 +27,7 @@ impl Language {
                 ArtifactKind::DotEnv,
             ],
             Language::Python => vec![ArtifactKind::Venv, ArtifactKind::PycacheDir],
+            Language::Custom => vec![ArtifactKind::New],
         }
     }
 }
@@ -39,7 +42,8 @@ pub enum ArtifactKind {
     // python
     Venv,
     PycacheDir,
-    // todo: add more languages and dev artifacts
+    // Custom
+    New, // todo: add more languages and dev artifacts
 }
 
 impl ArtifactKind {
@@ -51,6 +55,7 @@ impl ArtifactKind {
             ArtifactKind::DotEnv => ".env",
             ArtifactKind::Venv => ".venv",
             ArtifactKind::PycacheDir => "__pycache__",
+            ArtifactKind::New => "+ New",
         }
     }
 }

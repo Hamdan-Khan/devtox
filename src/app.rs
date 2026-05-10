@@ -55,6 +55,7 @@ pub enum PanelFocus {
     Languages,
     Artifacts,
     Results,
+    InputModal,
 }
 
 #[derive(Default, PartialEq)]
@@ -83,6 +84,7 @@ pub struct App {
     pub selected_entry_dir: String,
     scan_recv: Option<Receiver<ScanState>>,
     pub tick: u64,
+    pub show_input_modal: bool,
 }
 
 impl App {
@@ -100,6 +102,7 @@ impl App {
             selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
             scan_recv: None,
             tick: 0,
+            show_input_modal: false,
         }
     }
 
@@ -122,11 +125,13 @@ impl App {
                 match key.code {
                     KeyCode::Char('q') => self.exit = true,
                     KeyCode::Char('s') => {
-                        match self.scan_state {
-                            ScanState::Idle => self.scan_state = ScanState::Confirmation,
-                            _ => {}
+                        if self.focus == PanelFocus::Results {
+                            match self.scan_state {
+                                ScanState::Idle => self.scan_state = ScanState::Confirmation,
+                                _ => {}
+                            }
+                            self.focus = PanelFocus::Results
                         }
-                        self.focus = PanelFocus::Results
                     }
                     KeyCode::Char('y') => match self.scan_state {
                         ScanState::Confirmation => self.scan_dir(),
@@ -139,28 +144,8 @@ impl App {
                     KeyCode::Tab => self.cycle_focus(),
                     KeyCode::Down => self.on_down(),
                     KeyCode::Up => self.on_up(),
-                    KeyCode::Enter | KeyCode::Right => match self.focus {
-                        PanelFocus::Languages => {
-                            self.focus = PanelFocus::Artifacts;
-                        }
-                        PanelFocus::Artifacts => {
-                            self.focus = PanelFocus::Results;
-                        }
-                        _ => {}
-                    },
-                    KeyCode::Left => {
-                        if self.focus == PanelFocus::Artifacts {
-                            self.focus = PanelFocus::Languages;
-                        }
-                    }
-                    KeyCode::Esc => {
-                        if self.focus == PanelFocus::Results
-                            && self.scan_state != ScanState::InProgress
-                        {
-                            self.focus = PanelFocus::Languages;
-                            self.scan_state = ScanState::Idle;
-                        }
-                    }
+                    KeyCode::Enter => self.handle_enter_key(),
+                    KeyCode::Esc => self.handle_esc_key(),
                     _ => {}
                 }
             }
@@ -278,12 +263,45 @@ impl App {
         }
     }
 
+    fn handle_enter_key(&mut self) {
+        match self.focus {
+            PanelFocus::Languages => {
+                self.focus = PanelFocus::Artifacts;
+            }
+            PanelFocus::Artifacts => {
+                // if "New" artifact is selected, show the input modal. otherwise, focus the scan panel
+                if let Some(selected_artifact) = self.artifact_list.selected_item() {
+                    // to create custom artifact
+                    if *selected_artifact == ArtifactKind::New {
+                        self.show_input_modal = true;
+                        self.focus = PanelFocus::InputModal
+                    } else {
+                        self.focus = PanelFocus::Results;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_esc_key(&mut self) {
+        // esc shouldn't work when scanning (or deletion when we later add it) is in progress
+        if self.focus == PanelFocus::Results && self.scan_state != ScanState::InProgress {
+            self.focus = PanelFocus::Languages;
+            self.scan_state = ScanState::Idle;
+        } else if self.focus == PanelFocus::InputModal {
+            self.show_input_modal = false;
+            self.focus = PanelFocus::Artifacts
+        }
+    }
+
     // to move focus across different panels when tab key is pressed
     fn cycle_focus(&mut self) {
         self.focus = match self.focus {
             PanelFocus::Languages => PanelFocus::Artifacts,
             PanelFocus::Artifacts => PanelFocus::Languages,
             PanelFocus::Results => PanelFocus::Results,
+            PanelFocus::InputModal => PanelFocus::InputModal,
         };
     }
 

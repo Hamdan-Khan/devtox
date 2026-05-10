@@ -7,17 +7,19 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph},
 };
 
 // basically 1. splits the frame into rects (i.e. sections) and
 // 2. renders ui stuff on those frame sections mostly based on the app state (reason for passing app ref)
 pub fn draw(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+
     // split entire layout horizontally into two parts: left panels section and main section
     // giving left panels a fixed width for now, can implement something like media queries
     // (if possible ofc) later todo
     let [sidebar, main] =
-        Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(frame.area());
+        Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(area);
 
     // split left section vertically: language panel (top) and artifact panel (bottom)
     let [lang_area, artifact_area] =
@@ -31,6 +33,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     render_artifacts(frame, app, artifact_area);
     render_scan_screen(frame, app, results_area);
     render_stats(frame, app, stats_area);
+    render_input_modal(frame, app, area);
 }
 
 fn render_languages(frame: &mut Frame, app: &App, area: Rect) {
@@ -97,9 +100,9 @@ fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
                 "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}",
                 artifact.display_name(),
                 lang.display_name(),
+                keybind_line("<Enter>", "select language / artifact"),
                 keybind_line("<s>", "start scan"),
                 keybind_line("<Tab>", "switch selection panels"),
-                keybind_line("<Enter>", "select language / artifact"),
                 keybind_line("<Esc>", "go back to selection"),
                 keybind_line("<q>", "quit"),
             ),
@@ -119,10 +122,11 @@ fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
             }
             ScanState::Completed(_) => {
                 format!(
-                    "Successfully scanned '{}' for '{}'!\n\nPress\n{}",
+                    "Successfully scanned '{}' for '{}'!\n\nPress\n{}\n{}",
                     app.selected_entry_dir,
                     artifact.display_name(),
                     keybind_line("<Esc>", "go back to selection and start a new scan session"),
+                    keybind_line("<q>", "quit"),
                 )
             }
             ScanState::Error => String::from("Couldn't scan due to an error."),
@@ -174,6 +178,20 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(stats_line).block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(paragraph, area);
+}
+
+fn render_input_modal(frame: &mut Frame, app: &App, area: Rect) {
+    if app.show_input_modal {
+        let focused = app.focus == PanelFocus::InputModal;
+        let popup_block = styled_block("Create custom search artifact", focused);
+        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Percentage(40));
+        // clears out any background in the area before rendering the popup
+        frame.render_widget(Clear, centered_area);
+        let paragraph = Paragraph::new("todo: input")
+            .block(popup_block)
+            .style(Style::default().bg(Color::Rgb(46, 46, 46)));
+        frame.render_widget(paragraph, centered_area);
+    }
 }
 
 // styled panel / section block with title and conditional color based on the focused state
