@@ -9,9 +9,9 @@ use std::{
     io,
     sync::mpsc::{self, Receiver},
     thread,
-    time::{self, Duration},
+    time::Duration,
 };
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // stateful wrapper around vector to keep track of the selected item
 // (will use in languages and artifacts sections for now)
@@ -58,11 +58,23 @@ pub enum PanelFocus {
     InputModal,
 }
 
+#[derive(PartialEq, Debug)]
+pub struct ScanEntry {
+    pub path: String,
+    pub size: u64,
+}
+
+enum ScanTraversalState {
+    Outside,
+    Inside { accumulated_size: u64, path: String },
+}
+
 #[derive(Default, PartialEq)]
 pub struct ScanResult {
     pub total_size: u64,
     pub symlink_count: u64,
     pub error_count: u64,
+    pub scanned_entries: Vec<ScanEntry>,
 }
 
 #[derive(PartialEq)]
@@ -99,7 +111,7 @@ impl App {
             exit: false,
             scan_result: ScanResult::default(),
             scan_state: ScanState::Idle,
-            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox"),
+            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox/as"),
             scan_recv: None,
             tick: 0,
             show_input_modal: false,
@@ -185,6 +197,8 @@ impl App {
                 let mut error_count: u64 = 0;
                 let mut is_target_dir: bool = false;
                 let mut depth: usize = 0;
+                let mut scanned_entries: Vec<ScanEntry> = vec![];
+                let mut traversal_state: ScanTraversalState = ScanTraversalState::Outside;
 
                 for entry in WalkDir::new(dir) {
                     Self::calculate_stats(
@@ -195,17 +209,35 @@ impl App {
                         &mut error_count,
                         &mut is_target_dir,
                         &mut depth,
+                        &mut scanned_entries,
+                        &mut traversal_state,
                     );
                 }
 
+                // if the last element scanned is target directory or its child, the traversal state is outdated
+                // and accumulation of entry is not performed
+                if let ScanTraversalState::Inside {
+                    accumulated_size,
+                    path,
+                } = traversal_state
+                {
+                    scanned_entries.push(ScanEntry {
+                        path: path.to_string(),
+                        size: accumulated_size,
+                    });
+                }
+
+                debug!("{:?}", &scanned_entries);
+
                 // for testing
-                let delay = time::Duration::from_secs(5);
-                thread::sleep(delay);
+                // let delay = time::Duration::from_secs(2);
+                // thread::sleep(delay);
 
                 tx.send(ScanState::Completed(ScanResult {
                     total_size,
                     symlink_count,
                     error_count,
+                    scanned_entries,
                 }))
                 .ok();
             });
@@ -214,6 +246,7 @@ impl App {
         }
     }
 
+    // todo: add tests
     fn calculate_stats(
         entry: Result<DirEntry<((), ())>, Error>,
         artifact: ArtifactKind,
@@ -222,6 +255,8 @@ impl App {
         error_count: &mut u64,
         is_target_dir: &mut bool,
         depth: &mut usize,
+        scanned_entries: &mut Vec<ScanEntry>,
+        traversal_state: &mut ScanTraversalState,
     ) {
         match entry {
             Ok(entry) => {
@@ -230,9 +265,12 @@ impl App {
                         artifact.display_name() == entry.file_name() && metadata.is_dir();
                     // update global flags
                     if is_target {
-                        // todo: handle cases like target dir inside target dir, which one's depth should be kept in the global var?
+                        // if we're walking inside the target directory and encounter another instance of target directory as its child e.g. target/xyz/target,
+                        // no need to update the global depth because the global depth should track the parent target directory's depth
+                        if !*is_target_dir {
+                            *depth = entry.depth;
+                        }
                         *is_target_dir = true;
-                        *depth = entry.depth;
                     }
                     // disable flags when encounter siblings of the target directory i.e. same depth but not the target directory
                     // this won't disable global flags for the target directory itself
@@ -243,10 +281,51 @@ impl App {
                     if *is_target_dir && *depth > entry.depth {
                         *is_target_dir = false;
                     }
+
+                    // pattern matching state machine for accumulating entry-wise data i.e. size and path for scanned target entries
+                    match (&traversal_state, *is_target_dir) {
+                        // walker encounters the target directory
+                        (ScanTraversalState::Outside, true) => {
+                            *traversal_state = ScanTraversalState::Inside {
+                                accumulated_size: metadata.len(),
+                                path: entry.path().display().to_string(),
+                            }
+                        }
+                        // walker is inside the target directory
+                        (
+                            ScanTraversalState::Inside {
+                                accumulated_size,
+                                path,
+                            },
+                            true,
+                        ) => {
+                            *traversal_state = ScanTraversalState::Inside {
+                                accumulated_size: accumulated_size + metadata.len(),
+                                path: path.to_string(),
+                            }
+                        }
+                        // walker leaves the target directory
+                        (
+                            ScanTraversalState::Inside {
+                                accumulated_size,
+                                path,
+                            },
+                            false,
+                        ) => {
+                            scanned_entries.push(ScanEntry {
+                                path: path.to_string(),
+                                size: *accumulated_size,
+                            });
+                            *traversal_state = ScanTraversalState::Outside;
+                        }
+                        _ => {}
+                    }
+
                     // child, if its depth is strictly greater than the target directory
                     // and walker encounters it after the target directory
                     let is_child = *is_target_dir && entry.depth > *depth;
 
+                    // todo: might infer total size from sum of all scanned entries
                     if is_child {
                         info!("{:?}, {}", entry.file_name(), entry.depth);
                         *total_size += metadata.len();

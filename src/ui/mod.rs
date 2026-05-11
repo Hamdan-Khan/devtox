@@ -159,13 +159,13 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("   Reclaimable: ", Style::default().fg(Color::Gray)),
-        Span::styled(
-            "—",
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
+        // Span::styled("   Reclaimable: ", Style::default().fg(Color::Gray)),
+        // Span::styled(
+        //     "—",
+        //     Style::default()
+        //         .fg(Color::Green)
+        //         .add_modifier(Modifier::BOLD),
+        // ),
         Span::styled("   Selected: ", Style::default().fg(Color::Gray)),
         Span::styled(
             "—",
