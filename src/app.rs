@@ -4,7 +4,7 @@ use crate::{
 };
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use jwalk::{DirEntry, Error, WalkDir};
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, widgets::TableState};
 use std::{
     io,
     sync::mpsc::{self, Receiver},
@@ -101,30 +101,33 @@ pub struct App {
     pub artifact_list: StatefulList<ArtifactKind>,
     pub focus: PanelFocus,
     pub exit: bool,
-    pub scan_result: ScanResult,
     pub scan_state: ScanState,
     pub selected_entry_dir: String,
     scan_recv: Option<Receiver<ScanState>>,
     pub tick: u64,
     pub show_input_modal: bool,
+    pub table_state: TableState,
 }
 
 impl App {
     pub fn new() -> App {
         let languages = Language::all();
         let initial_artifacts = languages[0].artifacts();
+        let mut table_state = TableState::default();
+        table_state.select_first();
+        table_state.select_first_column();
 
         App {
             language_list: StatefulList::new(languages),
             artifact_list: StatefulList::new(initial_artifacts),
             focus: PanelFocus::Languages,
             exit: false,
-            scan_result: ScanResult::default(),
             scan_state: ScanState::Idle,
             selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox/as"),
             scan_recv: None,
             tick: 0,
             show_input_modal: false,
+            table_state,
         }
     }
 
@@ -166,6 +169,8 @@ impl App {
                     KeyCode::Tab => self.cycle_focus(),
                     KeyCode::Down => self.on_down(),
                     KeyCode::Up => self.on_up(),
+                    KeyCode::Right => self.on_right(),
+                    KeyCode::Left => self.on_left(),
                     KeyCode::Enter => self.handle_enter_key(),
                     KeyCode::Esc => self.handle_esc_key(),
                     _ => {}
@@ -180,12 +185,7 @@ impl App {
     fn handle_scan_events(&mut self) {
         if let Some(rx) = &self.scan_recv {
             if let Ok(scan_state) = rx.try_recv() {
-                if let ScanState::Completed(s) = scan_state {
-                    self.scan_result = s;
-                    self.scan_state = ScanState::Completed(ScanResult::default());
-                } else {
-                    self.scan_state = scan_state;
-                }
+                self.scan_state = scan_state;
             };
         }
     }
@@ -384,23 +384,47 @@ impl App {
     }
 
     fn on_down(&mut self) {
-        match self.focus {
-            PanelFocus::Languages => {
+        match (&self.focus, &self.scan_state) {
+            (PanelFocus::Results, ScanState::Completed(_)) => {
+                self.table_state.select_next();
+            }
+            (PanelFocus::Languages, _) => {
                 self.language_list.next();
                 self.refresh_artifacts();
             }
-            PanelFocus::Artifacts => self.artifact_list.next(),
+            (PanelFocus::Artifacts, _) => self.artifact_list.next(),
             _ => {}
         }
     }
 
     fn on_up(&mut self) {
-        match self.focus {
-            PanelFocus::Languages => {
+        match (&self.focus, &self.scan_state) {
+            (PanelFocus::Results, ScanState::Completed(_)) => {
+                self.table_state.select_previous();
+            }
+            (PanelFocus::Languages, _) => {
                 self.language_list.previous();
                 self.refresh_artifacts();
             }
-            PanelFocus::Artifacts => self.artifact_list.previous(),
+            (PanelFocus::Artifacts, _) => self.artifact_list.previous(),
+            _ => {}
+        }
+    }
+
+    fn on_left(&mut self) {
+        match (&self.focus, &self.scan_state) {
+            (PanelFocus::Results, ScanState::Completed(_)) => {
+                self.table_state.select_previous_column();
+            }
+            _ => {}
+        }
+    }
+
+    fn on_right(&mut self) {
+        match (&self.focus, &self.scan_state) {
+            (PanelFocus::Results, ScanState::Completed(_)) => {
+                self.table_state.select_next_column();
+            }
             _ => {}
         }
     }

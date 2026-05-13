@@ -1,5 +1,5 @@
 use crate::{
-    app::{App, PanelFocus, ScanState},
+    app::{App, PanelFocus, ScanResult, ScanState},
     utils::format_size_str,
 };
 use ratatui::{
@@ -7,12 +7,15 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph},
+    widgets::{
+        Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Padding, Paragraph,
+        Row, Table,
+    },
 };
 
 // basically 1. splits the frame into rects (i.e. sections) and
 // 2. renders ui stuff on those frame sections mostly based on the app state (reason for passing app ref)
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     // split entire layout horizontally into two parts: left panels section and main section
@@ -88,51 +91,8 @@ fn keybind_line(key: &str, desc: &str) -> String {
     format!("{:<7} {}", key, desc)
 }
 
-fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
+fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
     const SPINNER_STATES: &[&str] = &["⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"];
-
-    let description = match (
-        app.language_list.selected_item(),
-        app.artifact_list.selected_item(),
-    ) {
-        (Some(lang), Some(artifact)) => match app.scan_state {
-            ScanState::Idle => format!(
-                "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}",
-                artifact.display_name(),
-                lang.display_name(),
-                keybind_line("<Enter>", "select language / artifact"),
-                keybind_line("<s>", "start scan"),
-                keybind_line("<Tab>", "switch selection panels"),
-                keybind_line("<Esc>", "go back to selection"),
-                keybind_line("<q>", "quit"),
-            ),
-            ScanState::Confirmation => {
-                format!(
-                    "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}",
-                    artifact.display_name(),
-                    app.selected_entry_dir,
-                    keybind_line("<y>", "to proceed"),
-                    keybind_line("<n>", "to abort"),
-                )
-            }
-            ScanState::InProgress => {
-                let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
-                let spinner = SPINNER_STATES[state_index];
-                format!("Scanning '{}' {}", app.selected_entry_dir, spinner)
-            }
-            ScanState::Completed(_) => {
-                format!(
-                    "Successfully scanned '{}' for '{}'!\n\nPress\n{}\n{}",
-                    app.selected_entry_dir,
-                    artifact.display_name(),
-                    keybind_line("<Esc>", "go back to selection and start a new scan session"),
-                    keybind_line("<q>", "quit"),
-                )
-            }
-            ScanState::Error => String::from("Couldn't scan due to an error."),
-        },
-        _ => "Select a language and artifact type to scan.".to_string(),
-    };
 
     let focused = app.focus == PanelFocus::Results;
     let text_color = if focused {
@@ -140,16 +100,125 @@ fn render_scan_screen(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Color::DarkGray
     };
-    let paragraph = Paragraph::new(description)
-        .block(styled_block("Results", focused))
-        .style(Style::default().fg(text_color));
+    let table_state = &mut app.table_state;
 
-    frame.render_widget(paragraph, area);
+    match (
+        app.language_list.selected_item(),
+        app.artifact_list.selected_item(),
+    ) {
+        (Some(lang), Some(artifact)) => match &app.scan_state {
+            ScanState::Completed(scan_result) => {
+                let block = styled_block("Results", focused);
+                let inner = block.inner(area);
+                frame.render_widget(block, area);
+                let table = generate_scanned_table(scan_result, focused);
+                frame.render_stateful_widget(table, inner, table_state);
+            }
+            _ => {
+                let description = match &app.scan_state {
+                    ScanState::Idle => format!(
+                        "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}",
+                        artifact.display_name(),
+                        lang.display_name(),
+                        keybind_line("<Enter>", "select language / artifact"),
+                        keybind_line("<s>", "start scan"),
+                        keybind_line("<Tab>", "switch selection panels"),
+                        keybind_line("<Esc>", "go back to selection"),
+                        keybind_line("<q>", "quit"),
+                    ),
+                    ScanState::Confirmation => format!(
+                        "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}",
+                        artifact.display_name(),
+                        app.selected_entry_dir,
+                        keybind_line("<y>", "to proceed"),
+                        keybind_line("<n>", "to abort"),
+                    ),
+                    ScanState::InProgress => {
+                        let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
+                        format!(
+                            "Scanning '{}' {}",
+                            app.selected_entry_dir, SPINNER_STATES[state_index]
+                        )
+                    }
+                    ScanState::Error => String::from("Couldn't scan due to an error."),
+                    ScanState::Completed(_) => unreachable!(),
+                };
+
+                let paragraph = Paragraph::new(description)
+                    .block(styled_block("Results", focused))
+                    .style(Style::default().fg(text_color));
+
+                frame.render_widget(paragraph, area);
+            }
+        },
+        _ => {
+            let paragraph = Paragraph::new("Select a language and artifact type to scan.")
+                .block(styled_block("Results", focused))
+                .style(Style::default().fg(text_color));
+
+            frame.render_widget(paragraph, area);
+        }
+    }
+}
+
+fn generate_scanned_table(scan_result: &ScanResult, focused: bool) -> Table<'_> {
+    let text_color = if focused {
+        Color::White
+    } else {
+        Color::DarkGray
+    };
+
+    let header = Row::new(vec![
+        Cell::from("#").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Path").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Size").style(Style::default().add_modifier(Modifier::BOLD)),
+    ])
+    .style(Style::default().fg(text_color))
+    .bottom_margin(1);
+
+    let rows: Vec<Row> = scan_result
+        .scanned_entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let size = format_size_str(entry.size as f64);
+            Row::new(vec![
+                Cell::from(format!("{}", i + 1)),
+                Cell::from(entry.path.clone()),
+                Cell::from(size),
+            ])
+            .style(Style::default().fg(text_color))
+        })
+        .collect();
+
+    Table::new(
+        rows,
+        [
+            Constraint::Length(4),
+            Constraint::Fill(1),
+            Constraint::Length(10),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .padding(Padding::horizontal(1)),
+    )
+    .column_spacing(1)
+    .style(Color::White)
+    .row_highlight_style(Style::new().on_black().bold())
+    .column_highlight_style(Color::Gray)
+    .cell_highlight_style(Style::new().reversed().light_green())
 }
 
 // stats to show at the bottom, when scanned
 fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
-    let total_size = format_size_str(app.scan_result.total_size as f64);
+    let total_size = match &app.scan_state {
+        ScanState::Completed(scan_result) => format_size_str(scan_result.total_size as f64),
+        _ => String::from("0"),
+    };
 
     let stats_line = Line::from(vec![
         Span::styled(" Total found: ", Style::default().fg(Color::Gray)),
@@ -159,13 +228,6 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ),
-        // Span::styled("   Reclaimable: ", Style::default().fg(Color::Gray)),
-        // Span::styled(
-        //     "—",
-        //     Style::default()
-        //         .fg(Color::Green)
-        //         .add_modifier(Modifier::BOLD),
-        // ),
         Span::styled("   Selected: ", Style::default().fg(Color::Gray)),
         Span::styled(
             "—",
