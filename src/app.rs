@@ -4,8 +4,9 @@ use crate::{
 };
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use jwalk::{DirEntry, Error, WalkDir};
-use ratatui::{DefaultTerminal, widgets::TableState};
+use ratatui::{widgets::TableState, DefaultTerminal};
 use std::{
+    collections::HashSet,
     io,
     sync::mpsc::{self, Receiver},
     thread,
@@ -107,6 +108,9 @@ pub struct App {
     pub tick: u64,
     pub show_input_modal: bool,
     pub table_state: TableState,
+    pub search_query: String,
+    pub search_focused: bool,
+    pub selected_entries: HashSet<usize>,
 }
 
 impl App {
@@ -128,6 +132,9 @@ impl App {
             tick: 0,
             show_input_modal: false,
             table_state,
+            search_query: String::new(),
+            search_focused: false,
+            selected_entries: HashSet::new(),
         }
     }
 
@@ -153,6 +160,9 @@ impl App {
                         if self.focus == PanelFocus::Results {
                             match self.scan_state {
                                 ScanState::Idle => self.scan_state = ScanState::Confirmation,
+                                ScanState::Completed(_) => {
+                                    self.search_focused = true;
+                                }
                                 _ => {}
                             }
                             self.focus = PanelFocus::Results
@@ -164,6 +174,22 @@ impl App {
                     },
                     KeyCode::Char('n') => match self.scan_state {
                         ScanState::Confirmation => self.scan_state = ScanState::Idle,
+                        _ => {}
+                    },
+                    KeyCode::Char('a') => match &self.scan_state {
+                        ScanState::Completed(scan_result) => {
+                            scan_result.scanned_entries.iter().enumerate().for_each(
+                                |(index, _)| {
+                                    self.selected_entries.insert(index);
+                                },
+                            );
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Char('d') => match &self.scan_state {
+                        ScanState::Completed(_) => {
+                            self.selected_entries.clear();
+                        }
                         _ => {}
                     },
                     KeyCode::Tab => self.cycle_focus(),
@@ -356,6 +382,21 @@ impl App {
                     } else {
                         self.focus = PanelFocus::Results;
                     }
+                }
+            }
+            PanelFocus::Results => {
+                match &self.scan_state {
+                    // to toggle entries in the scanned table
+                    ScanState::Completed(_) => {
+                        if let Some(row) = self.table_state.selected() {
+                            if self.selected_entries.contains(&row) {
+                                self.selected_entries.remove(&row);
+                            } else {
+                                self.selected_entries.insert(row);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             _ => {}

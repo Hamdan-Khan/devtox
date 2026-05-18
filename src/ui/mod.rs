@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+
 use crate::{
     app::{App, PanelFocus, ScanResult, ScanState},
     utils::format_size_str,
 };
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
@@ -111,8 +113,45 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                 let block = styled_block("Results", focused);
                 let inner = block.inner(area);
                 frame.render_widget(block, area);
-                let table = generate_scanned_table(scan_result, focused);
-                frame.render_stateful_widget(table, inner, table_state);
+
+                let sections = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(1), // search bar
+                        Constraint::Length(1), // actions row
+                        Constraint::Fill(1),   // table
+                    ])
+                    .split(inner);
+
+                let search_style = if app.search_focused {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let search_prefix = if app.search_focused { " / " } else { " " };
+                let search_display = if app.search_query.is_empty() && !app.search_focused {
+                    format!("{}[Press 's' to search paths]", search_prefix)
+                } else {
+                    format!("{}{}▌", search_prefix, app.search_query)
+                };
+                let search_bar = Paragraph::new(search_display).style(search_style);
+                frame.render_widget(search_bar, sections[0]);
+                let total = scan_result.scanned_entries.len();
+                let selected_count = app.selected_entries.len();
+                let actions = Paragraph::new(format!(
+                    " [a] Select all  [d] Deselect all  │  {}/{} selected",
+                    selected_count, total
+                ))
+                .style(Style::default().fg(Color::DarkGray));
+                frame.render_widget(actions, sections[1]);
+
+                let table = generate_scanned_table(
+                    scan_result,
+                    focused,
+                    &app.search_query,
+                    &app.selected_entries,
+                );
+                frame.render_stateful_widget(table, sections[2], table_state);
             }
             _ => {
                 let description = match &app.scan_state {
@@ -161,14 +200,21 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn generate_scanned_table(scan_result: &ScanResult, focused: bool) -> Table<'_> {
+fn generate_scanned_table<'a>(
+    scan_result: &'a ScanResult,
+    focused: bool,
+    search_query: &str,
+    selected_entries: &HashSet<usize>,
+) -> Table<'a> {
     let text_color = if focused {
         Color::White
     } else {
         Color::DarkGray
     };
+    let query = search_query.to_lowercase();
 
     let header = Row::new(vec![
+        Cell::from("✓").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("#").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("Path").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("Size").style(Style::default().add_modifier(Modifier::BOLD)),
@@ -180,9 +226,21 @@ fn generate_scanned_table(scan_result: &ScanResult, focused: bool) -> Table<'_> 
         .scanned_entries
         .iter()
         .enumerate()
+        .filter(|(_, entry)| query.is_empty() || entry.path.to_lowercase().contains(&query))
         .map(|(i, entry)| {
             let size = format_size_str(entry.size as f64);
+            let is_selected = selected_entries.contains(&i);
+            let check_cell = if is_selected {
+                Cell::from("✓").style(
+                    Style::default()
+                        .fg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Cell::from("○").style(Style::default().fg(Color::DarkGray))
+            };
             Row::new(vec![
+                check_cell,
                 Cell::from(format!("{}", i + 1)),
                 Cell::from(entry.path.clone()),
                 Cell::from(size),
@@ -194,9 +252,10 @@ fn generate_scanned_table(scan_result: &ScanResult, focused: bool) -> Table<'_> 
     Table::new(
         rows,
         [
-            Constraint::Length(4),
-            Constraint::Fill(1),
-            Constraint::Length(10),
+            Constraint::Length(3),  // select column
+            Constraint::Length(4),  // #
+            Constraint::Fill(1),    // path
+            Constraint::Length(10), // size
         ],
     )
     .header(header)
@@ -208,9 +267,8 @@ fn generate_scanned_table(scan_result: &ScanResult, focused: bool) -> Table<'_> 
     )
     .column_spacing(1)
     .style(Color::White)
-    .row_highlight_style(Style::new().on_black().bold())
+    .row_highlight_style(Style::new().on_light_green().bold())
     .column_highlight_style(Color::Gray)
-    .cell_highlight_style(Style::new().reversed().light_green())
 }
 
 // stats to show at the bottom, when scanned
