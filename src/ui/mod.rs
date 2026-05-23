@@ -6,7 +6,7 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
@@ -102,7 +102,6 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         Color::DarkGray
     };
-    let table_state = &mut app.table_state;
 
     match (
         app.language_list.selected_item(),
@@ -117,29 +116,18 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                 let sections = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
-                        Constraint::Length(1), // search bar
+                        Constraint::Length(3), // search bar
                         Constraint::Length(1), // actions row
                         Constraint::Fill(1),   // table
                     ])
                     .split(inner);
 
-                let search_style = if app.search_focused {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-                let search_prefix = if app.search_focused { " / " } else { " " };
-                let search_display = if app.search_query.is_empty() && !app.search_focused {
-                    format!("{}[Press 's' to search paths]", search_prefix)
-                } else {
-                    format!("{}{}▌", search_prefix, app.search_query)
-                };
-                let search_bar = Paragraph::new(search_display).style(search_style);
-                frame.render_widget(search_bar, sections[0]);
+                render_search_input(frame, app, sections[0]);
+
                 let total = scan_result.scanned_entries.len();
                 let selected_count = app.selected_entries.len();
                 let actions = Paragraph::new(format!(
-                    " [a] Select all  [d] Deselect all  │  {}/{} selected",
+                    " [Enter] toggle selection [a] Select all  [d] Deselect all  │  {}/{} selected",
                     selected_count, total
                 ))
                 .style(Style::default().fg(Color::DarkGray));
@@ -151,7 +139,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                     &app.search_query,
                     &app.selected_entries,
                 );
-                frame.render_stateful_widget(table, sections[2], table_state);
+                frame.render_stateful_widget(table, sections[2], &mut app.table_state);
             }
             _ => {
                 let description = match &app.scan_state {
@@ -197,6 +185,33 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
 
             frame.render_widget(paragraph, area);
         }
+    }
+}
+
+fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
+    let search_style = if app.search_focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let search_prefix = if app.search_focused { " / " } else { " " };
+    let search_display = if app.search_query.is_empty() && !app.search_focused {
+        format!("{}[Press 's' to search paths]", search_prefix)
+    } else {
+        format!(" {}", app.search_query)
+    };
+    let search_bar = Paragraph::new(search_display)
+        .style(search_style)
+        .block(Block::bordered().title("Search"));
+    frame.render_widget(search_bar, area);
+    if app.search_focused {
+        frame.set_cursor_position(Position::new(
+            // Draw the cursor at the current position in the input field.
+            // This position can be controlled via the left and right arrow key
+            area.x + app.search_char_index as u16 + 1,
+            // Move one line down, from the border to the input line
+            area.y + 1,
+        ));
     }
 }
 

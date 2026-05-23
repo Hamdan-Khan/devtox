@@ -2,9 +2,9 @@ use crate::{
     model::{ArtifactKind, Language},
     ui::draw,
 };
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use jwalk::{DirEntry, Error, WalkDir};
-use ratatui::{widgets::TableState, DefaultTerminal};
+use ratatui::{DefaultTerminal, widgets::TableState};
 use std::{
     collections::HashSet,
     io,
@@ -110,6 +110,7 @@ pub struct App {
     pub table_state: TableState,
     pub search_query: String,
     pub search_focused: bool,
+    pub search_char_index: usize,
     pub selected_entries: HashSet<usize>,
 }
 
@@ -134,6 +135,7 @@ impl App {
             table_state,
             search_query: String::new(),
             search_focused: false,
+            search_char_index: 1,
             selected_entries: HashSet::new(),
         }
     }
@@ -154,52 +156,56 @@ impl App {
                 if key.kind != KeyEventKind::Press {
                     return Ok(());
                 }
-                match key.code {
-                    KeyCode::Char('q') => self.exit = true,
-                    KeyCode::Char('s') => {
-                        if self.focus == PanelFocus::Results {
-                            match self.scan_state {
-                                ScanState::Idle => self.scan_state = ScanState::Confirmation,
-                                ScanState::Completed(_) => {
-                                    self.search_focused = true;
+                if self.search_focused {
+                    self.handle_input_keys(key);
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') => self.exit = true,
+                        KeyCode::Char('s') => {
+                            if self.focus == PanelFocus::Results {
+                                match self.scan_state {
+                                    ScanState::Idle => self.scan_state = ScanState::Confirmation,
+                                    ScanState::Completed(_) => {
+                                        self.search_focused = true;
+                                    }
+                                    _ => {}
                                 }
-                                _ => {}
+                                self.focus = PanelFocus::Results
                             }
-                            self.focus = PanelFocus::Results
                         }
+                        KeyCode::Char('y') => match self.scan_state {
+                            ScanState::Confirmation => self.scan_dir(),
+                            _ => {}
+                        },
+                        KeyCode::Char('n') => match self.scan_state {
+                            ScanState::Confirmation => self.scan_state = ScanState::Idle,
+                            _ => {}
+                        },
+                        KeyCode::Char('a') => match &self.scan_state {
+                            ScanState::Completed(scan_result) => {
+                                scan_result.scanned_entries.iter().enumerate().for_each(
+                                    |(index, _)| {
+                                        self.selected_entries.insert(index);
+                                    },
+                                );
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Char('d') => match &self.scan_state {
+                            ScanState::Completed(_) => {
+                                self.selected_entries.clear();
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Tab => self.cycle_focus(),
+                        KeyCode::Down => self.on_down(),
+                        KeyCode::Up => self.on_up(),
+                        KeyCode::Right => self.on_right(),
+                        KeyCode::Left => self.on_left(),
+                        KeyCode::Enter => self.handle_enter_key(),
+                        KeyCode::Esc => self.handle_esc_key(),
+                        _ => {}
                     }
-                    KeyCode::Char('y') => match self.scan_state {
-                        ScanState::Confirmation => self.scan_dir(),
-                        _ => {}
-                    },
-                    KeyCode::Char('n') => match self.scan_state {
-                        ScanState::Confirmation => self.scan_state = ScanState::Idle,
-                        _ => {}
-                    },
-                    KeyCode::Char('a') => match &self.scan_state {
-                        ScanState::Completed(scan_result) => {
-                            scan_result.scanned_entries.iter().enumerate().for_each(
-                                |(index, _)| {
-                                    self.selected_entries.insert(index);
-                                },
-                            );
-                        }
-                        _ => {}
-                    },
-                    KeyCode::Char('d') => match &self.scan_state {
-                        ScanState::Completed(_) => {
-                            self.selected_entries.clear();
-                        }
-                        _ => {}
-                    },
-                    KeyCode::Tab => self.cycle_focus(),
-                    KeyCode::Down => self.on_down(),
-                    KeyCode::Up => self.on_up(),
-                    KeyCode::Right => self.on_right(),
-                    KeyCode::Left => self.on_left(),
-                    KeyCode::Enter => self.handle_enter_key(),
-                    KeyCode::Esc => self.handle_esc_key(),
-                    _ => {}
                 }
             }
         } else {
@@ -364,6 +370,71 @@ impl App {
                 scan_stats.error_count += 1;
                 error!("Error processing file {:?}", err)
             }
+        }
+    }
+
+    fn move_cursor_left(&mut self) {
+        if self.search_char_index > 0 {
+            self.search_char_index -= 1;
+        }
+    }
+
+    fn move_cursor_right(&mut self) {
+        if self.search_char_index < self.search_query.len() {
+            self.search_char_index += 1;
+        }
+    }
+
+    /// Returns the byte index based on the character position.
+    ///
+    /// Since each character in a string can contain multiple bytes, it's necessary to calculate
+    /// the byte index based on the index of the character.
+    fn byte_index(&self) -> usize {
+        self.search_query
+            .char_indices()
+            .map(|(i, _)| i)
+            .nth(self.search_char_index)
+            .unwrap_or(self.search_query.len())
+    }
+
+    fn enter_char(&mut self, to_insert: char) {
+        let index = self.byte_index();
+        self.search_query.insert(index, to_insert);
+        self.move_cursor_right();
+    }
+
+    fn delete_search_char(&mut self) {
+        let is_not_cursor_leftmost = self.search_char_index != 0;
+        if is_not_cursor_leftmost {
+            // Method "remove" is not used on the saved text for deleting the selected char.
+            // Reason: Using remove on String works on bytes instead of the chars.
+            // Using remove would require special care because of char boundaries.
+
+            let current_index = self.search_char_index;
+            let from_left_to_current_index = current_index - 1;
+
+            // Getting all characters before the selected character.
+            let before_char_to_delete = self.search_query.chars().take(from_left_to_current_index);
+            // Getting all characters after selected character.
+            let after_char_to_delete = self.search_query.chars().skip(current_index);
+
+            // Put all characters together except the selected one.
+            // By leaving the selected one out, it is forgotten and therefore deleted.
+            self.search_query = before_char_to_delete.chain(after_char_to_delete).collect();
+            self.move_cursor_left();
+        }
+    }
+
+    fn handle_input_keys(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                self.search_focused = false;
+            }
+            KeyCode::Char(to_insert) => self.enter_char(to_insert),
+            KeyCode::Left => self.move_cursor_left(),
+            KeyCode::Right => self.move_cursor_right(),
+            KeyCode::Backspace => self.delete_search_char(),
+            _ => {}
         }
     }
 
