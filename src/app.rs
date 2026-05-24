@@ -8,7 +8,7 @@ use jwalk::{DirEntry, Error, WalkDir};
 use ratatui::{DefaultTerminal, widgets::TableState};
 use std::{
     collections::HashSet,
-    io,
+    fs, io,
     sync::mpsc::{self, Receiver},
     thread,
     time::Duration,
@@ -58,6 +58,7 @@ pub enum PanelFocus {
     Artifacts,
     Results,
     InputModal,
+    DeletionModal,
 }
 
 #[derive(PartialEq, Debug)]
@@ -176,6 +177,10 @@ impl App {
                         }
                         KeyCode::Char('y') => match self.scan_state {
                             ScanState::Confirmation => self.scan_dir(),
+                            ScanState::Completed(_) => match self.focus {
+                                PanelFocus::DeletionModal => self.delete_dir(),
+                                _ => {}
+                            },
                             _ => {}
                         },
                         KeyCode::Char('n') => match self.scan_state {
@@ -190,12 +195,13 @@ impl App {
                             }
                             _ => {}
                         },
-                        KeyCode::Char('d') => match &self.scan_state {
+                        KeyCode::Char('x') => match &self.scan_state {
                             ScanState::Completed(_) => {
                                 self.selected_entries.clear();
                             }
                             _ => {}
                         },
+                        KeyCode::Char('d') => self.open_deletion_modal(),
                         KeyCode::Tab => self.cycle_focus(),
                         KeyCode::Down => self.on_down(),
                         KeyCode::Up => self.on_up(),
@@ -437,6 +443,32 @@ impl App {
         }
     }
 
+    fn open_deletion_modal(&mut self) {
+        match &self.scan_state {
+            ScanState::Completed(_) => {
+                if !self.selected_entries.is_empty() {
+                    self.focus = PanelFocus::DeletionModal
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn delete_dir(&mut self) {
+        // close the confirmation modal
+        self.focus = PanelFocus::Results;
+
+        // todo: remove from scanned dirs too.
+        // ?should we remove the entry after its successfully deleted
+        for entry in self.selected_entries.drain() {
+            if let Err(e) = fs::remove_dir_all(&entry) {
+                error!("Error deleting {}", e);
+            } else {
+                debug!("Deleted {}", entry);
+            };
+        }
+    }
+
     fn handle_enter_key(&mut self) {
         match self.focus {
             PanelFocus::Languages => {
@@ -460,12 +492,12 @@ impl App {
                     ScanState::Completed(result) => {
                         if let Some(row) = self.table_state.selected() {
                             let query = self.search_query.to_lowercase();
-                            if let Some(curr) = result
+                            let found_entry = result
                                 .scanned_entries
                                 .iter()
                                 .filter(|entry| entry_matches_query(entry, &query))
-                                .nth(row)
-                            {
+                                .nth(row);
+                            if let Some(curr) = found_entry {
                                 if self.selected_entries.contains(&curr.path) {
                                     self.selected_entries.remove(&curr.path);
                                 } else {
@@ -499,6 +531,7 @@ impl App {
             PanelFocus::Artifacts => PanelFocus::Languages,
             PanelFocus::Results => PanelFocus::Results,
             PanelFocus::InputModal => PanelFocus::InputModal,
+            PanelFocus::DeletionModal => PanelFocus::DeletionModal,
         };
     }
 

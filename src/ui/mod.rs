@@ -6,9 +6,9 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Position, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{
         Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Padding, Paragraph,
         Row, Table,
@@ -39,6 +39,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     render_scan_screen(frame, app, results_area);
     render_stats(frame, app, stats_area);
     render_input_modal(frame, app, area);
+    render_deletion_modal(frame, app, area);
 }
 
 fn render_languages(frame: &mut Frame, app: &App, area: Rect) {
@@ -127,7 +128,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                 let total = scan_result.scanned_entries.len();
                 let selected_count = app.selected_entries.len();
                 let actions = Paragraph::new(format!(
-                    " [Enter] toggle selection [a] Select all  [d] Deselect all  │  {}/{} selected",
+                    " [Enter] toggle selection  [d] Delete selected  [a] Select all  [x] Deselect all  │  {}/{} selected",
                     selected_count, total
                 ))
                 .style(Style::default().fg(Color::DarkGray));
@@ -330,6 +331,70 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(stats_line).block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(paragraph, area);
+}
+
+fn render_deletion_modal(frame: &mut Frame, app: &App, area: Rect) {
+    if app.focus == PanelFocus::DeletionModal {
+        let popup_block = styled_block("Delete selected folders", true);
+        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Percentage(40));
+        frame.render_widget(Clear, centered_area);
+
+        // text area + button bar
+        let layout = Layout::vertical([Constraint::Fill(1), Constraint::Length(3)])
+            .split(popup_block.inner(centered_area));
+
+        // outer block
+        frame.render_widget(
+            Block::default()
+                .style(Style::default().bg(Color::Rgb(46, 46, 46)))
+                .borders(Borders::ALL),
+            centered_area,
+        );
+        frame.render_widget(popup_block, centered_area);
+
+        let text = Text::from(vec![
+            Line::from("Are you sure you want to delete the selected folders?"),
+            Line::from("This action is destructive and cannot be undone."),
+            Line::from(vec![
+                Span::raw("Please proceed with "),
+                Span::styled(
+                    "caution",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("!"),
+            ]),
+        ]);
+
+        let paragraph = Paragraph::new(text)
+            .style(Style::default().bg(Color::Rgb(46, 46, 46)))
+            .alignment(Alignment::Center);
+        frame.render_widget(paragraph, layout[0]);
+
+        // split button area into two halves
+        let button_layout =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(layout[1]);
+
+        let yes_button = Paragraph::new("Yes, Proceed [y]")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)),
+            )
+            .style(Style::default().fg(Color::Red));
+
+        let no_button = Paragraph::new("No, go back [n]")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green)),
+            )
+            .style(Style::default().fg(Color::Green));
+
+        frame.render_widget(yes_button, button_layout[0]);
+        frame.render_widget(no_button, button_layout[1]);
+    }
 }
 
 fn render_input_modal(frame: &mut Frame, app: &App, area: Rect) {
