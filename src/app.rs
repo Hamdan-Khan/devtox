@@ -1,6 +1,7 @@
 use crate::{
     model::{ArtifactKind, Language},
     ui::draw,
+    utils::entry_matches_query,
 };
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use jwalk::{DirEntry, Error, WalkDir};
@@ -111,7 +112,7 @@ pub struct App {
     pub search_query: String,
     pub search_focused: bool,
     pub search_char_index: usize,
-    pub selected_entries: HashSet<usize>,
+    pub selected_entries: HashSet<String>,
 }
 
 impl App {
@@ -135,7 +136,7 @@ impl App {
             table_state,
             search_query: String::new(),
             search_focused: false,
-            search_char_index: 1,
+            search_char_index: 0,
             selected_entries: HashSet::new(),
         }
     }
@@ -183,11 +184,9 @@ impl App {
                         },
                         KeyCode::Char('a') => match &self.scan_state {
                             ScanState::Completed(scan_result) => {
-                                scan_result.scanned_entries.iter().enumerate().for_each(
-                                    |(index, _)| {
-                                        self.selected_entries.insert(index);
-                                    },
-                                );
+                                scan_result.scanned_entries.iter().for_each(|entry| {
+                                    self.selected_entries.insert(entry.path.to_string());
+                                });
                             }
                             _ => {}
                         },
@@ -458,13 +457,21 @@ impl App {
             PanelFocus::Results => {
                 match &self.scan_state {
                     // to toggle entries in the scanned table
-                    ScanState::Completed(_) => {
+                    ScanState::Completed(result) => {
                         if let Some(row) = self.table_state.selected() {
-                            if self.selected_entries.contains(&row) {
-                                self.selected_entries.remove(&row);
-                            } else {
-                                self.selected_entries.insert(row);
-                            }
+                            let query = self.search_query.to_lowercase();
+                            if let Some(curr) = result
+                                .scanned_entries
+                                .iter()
+                                .filter(|entry| entry_matches_query(entry, &query))
+                                .nth(row)
+                            {
+                                if self.selected_entries.contains(&curr.path) {
+                                    self.selected_entries.remove(&curr.path);
+                                } else {
+                                    self.selected_entries.insert(curr.path.to_string());
+                                }
+                            };
                         }
                     }
                     _ => {}

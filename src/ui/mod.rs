@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     app::{App, PanelFocus, ScanResult, ScanState},
-    utils::format_size_str,
+    utils::{entry_matches_query, format_size_str},
 };
 use ratatui::{
     Frame,
@@ -154,13 +154,15 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                         keybind_line("<q>", "quit"),
                     ),
                     ScanState::Confirmation => format!(
-                        "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}",
+                        "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}\n{}",
                         artifact.display_name(),
                         app.selected_entry_dir,
                         keybind_line("<y>", "to proceed"),
                         keybind_line("<n>", "to abort"),
+                        keybind_line("<q>", "quit"),
                     ),
                     ScanState::InProgress => {
+                        // loading animation
                         let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
                         format!(
                             "Scanning '{}' {}",
@@ -194,21 +196,36 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let search_prefix = if app.search_focused { " / " } else { " " };
+    let search_label: String;
+    if app.search_focused {
+        search_label = "Search (press 'Enter' to search)".to_string();
+    } else {
+        search_label = "Search (press 's')".to_string();
+    }
     let search_display = if app.search_query.is_empty() && !app.search_focused {
-        format!("{}[Press 's' to search paths]", search_prefix)
+        format!("[Press 's' to search paths]")
     } else {
         format!(" {}", app.search_query)
     };
     let search_bar = Paragraph::new(search_display)
         .style(search_style)
-        .block(Block::bordered().title("Search"));
+        .block(Block::bordered().title(search_label));
     frame.render_widget(search_bar, area);
+
     if app.search_focused {
+        // Draw the cursor at the current position in the input field.
+        // This position can be controlled via the left and right arrow key
+        let x_pos: u16 = if app.search_query.is_empty() {
+            // for empty search query, cursor should be at 0th column
+            // hence the area's x + 1 as compared to when search query is written to,
+            // we want the cursor one column ahead of the character that is written
+            // hence area's x coordinate + cursor index + 2
+            area.x + 1
+        } else {
+            area.x + app.search_char_index as u16 + 2
+        };
         frame.set_cursor_position(Position::new(
-            // Draw the cursor at the current position in the input field.
-            // This position can be controlled via the left and right arrow key
-            area.x + app.search_char_index as u16 + 1,
+            x_pos,
             // Move one line down, from the border to the input line
             area.y + 1,
         ));
@@ -219,7 +236,7 @@ fn generate_scanned_table<'a>(
     scan_result: &'a ScanResult,
     focused: bool,
     search_query: &str,
-    selected_entries: &HashSet<usize>,
+    selected_entries: &HashSet<String>,
 ) -> Table<'a> {
     let text_color = if focused {
         Color::White
@@ -241,10 +258,10 @@ fn generate_scanned_table<'a>(
         .scanned_entries
         .iter()
         .enumerate()
-        .filter(|(_, entry)| query.is_empty() || entry.path.to_lowercase().contains(&query))
+        .filter(|(_, entry)| entry_matches_query(entry, &query))
         .map(|(i, entry)| {
             let size = format_size_str(entry.size as f64);
-            let is_selected = selected_entries.contains(&i);
+            let is_selected = selected_entries.contains(&entry.path);
             let check_cell = if is_selected {
                 Cell::from("✓").style(
                     Style::default()

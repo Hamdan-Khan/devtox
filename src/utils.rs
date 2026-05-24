@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 
+use crate::app::ScanEntry;
+
 #[derive(Clone, Copy)]
 pub enum SizeUnit {
     Bytes,
@@ -53,4 +55,8 @@ pub fn format_size_str(size: f64) -> String {
     } else {
         format!("{:.2} {}", value, unit)
     }
+}
+
+pub fn entry_matches_query(entry: &ScanEntry, query: &str) -> bool {
+    query.is_empty() || entry.path.to_lowercase().contains(query)
 }
