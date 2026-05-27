@@ -12,6 +12,7 @@ use std::{
     sync::mpsc::{self, Receiver},
     thread,
     time::Duration,
+    vec,
 };
 use tracing::{debug, error, info};
 
@@ -175,7 +176,7 @@ impl App {
                                 self.focus = PanelFocus::Results
                             }
                         }
-                        KeyCode::Char('y') => match self.scan_state {
+                        KeyCode::Char('y') => match &self.scan_state {
                             ScanState::Confirmation => self.scan_dir(),
                             ScanState::Completed(_) => match self.focus {
                                 PanelFocus::DeletionModal => self.delete_dir(),
@@ -185,6 +186,10 @@ impl App {
                         },
                         KeyCode::Char('n') => match self.scan_state {
                             ScanState::Confirmation => self.scan_state = ScanState::Idle,
+                            ScanState::Completed(_) => match self.focus {
+                                PanelFocus::DeletionModal => self.focus = PanelFocus::Results,
+                                _ => {}
+                            },
                             _ => {}
                         },
                         KeyCode::Char('a') => match &self.scan_state {
@@ -266,7 +271,10 @@ impl App {
                     });
                 }
 
-                debug!("{:?}", &scan_stats.scanned_entries);
+                debug!(
+                    "{}\n{:?}",
+                    &scan_stats.symlink_count, &scan_stats.scanned_entries,
+                );
 
                 // for testing
                 // let delay = time::Duration::from_secs(2);
@@ -296,8 +304,13 @@ impl App {
                 if let Ok(metadata) = entry.metadata() {
                     let entry_depth = entry.depth;
                     let entry_size = metadata.len();
-                    let is_target =
-                        artifact.display_name() == entry.file_name() && metadata.is_dir();
+                    let is_symlink = metadata.is_symlink();
+                    // symbolic links are non-dirs, but we'll count them as a target
+                    let is_target = if is_symlink {
+                        artifact.display_name() == entry.file_name()
+                    } else {
+                        artifact.display_name() == entry.file_name() && metadata.is_dir()
+                    };
                     // update global flags
                     if is_target {
                         // if we're walking inside the target directory and encounter another instance of target directory as its child e.g. target/xyz/target,
@@ -357,17 +370,17 @@ impl App {
                         _ => {}
                     }
 
+                    if scan_stats.is_target_dir && is_symlink {
+                        scan_stats.symlink_count += 1;
+                    };
+
                     // child, if its depth is strictly greater than the target directory
                     // and walker encounters it after the target directory
                     let is_child = scan_stats.is_target_dir && entry_depth > scan_stats.depth;
 
-                    // todo: might infer total size from sum of all scanned entries
                     if is_child {
                         info!("{:?}, {}", entry.file_name(), entry_depth);
                         scan_stats.total_size += entry_size;
-                        if metadata.is_symlink() {
-                            scan_stats.symlink_count += 1;
-                        };
                     }
                 }
             }
@@ -457,15 +470,21 @@ impl App {
     fn delete_dir(&mut self) {
         // close the confirmation modal
         self.focus = PanelFocus::Results;
+        let mut deleted: Vec<String> = vec![];
 
-        // todo: remove from scanned dirs too.
-        // ?should we remove the entry after its successfully deleted
         for entry in self.selected_entries.drain() {
             if let Err(e) = fs::remove_dir_all(&entry) {
                 error!("Error deleting {}", e);
             } else {
-                debug!("Deleted {}", entry);
+                debug!("Deleted {}", &entry);
+                deleted.push(entry);
             };
+        }
+
+        if let ScanState::Completed(ref mut result) = self.scan_state {
+            result
+                .scanned_entries
+                .retain(|e| !deleted.contains(&e.path));
         }
     }
 

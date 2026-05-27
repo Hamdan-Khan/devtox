@@ -21,10 +21,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     // split entire layout horizontally into two parts: left panels section and main section
-    // giving left panels a fixed width for now, can implement something like media queries
-    // (if possible ofc) later todo
     let [sidebar, main] =
-        Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(area);
+        Layout::horizontal([Constraint::Percentage(15), Constraint::Fill(1)]).areas(area);
 
     // split left section vertically: language panel (top) and artifact panel (bottom)
     let [lang_area, artifact_area] =
@@ -48,7 +46,7 @@ fn render_languages(frame: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app
         .language_list
         .items
-        .iter() // !todo: understand iterators in depth (looks kind of like js arry functions)
+        .iter()
         .map(|lang| ListItem::new(lang.display_name()))
         .collect();
 
@@ -310,6 +308,10 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
         ScanState::Completed(scan_result) => format_size_str(scan_result.total_size as f64),
         _ => String::from("0"),
     };
+    let symlinks = match &app.scan_state {
+        ScanState::Completed(scan_result) => scan_result.symlink_count.to_string(),
+        _ => String::from("—"),
+    };
 
     let stats_line = Line::from(vec![
         Span::styled(" Total found: ", Style::default().fg(Color::Gray)),
@@ -322,6 +324,13 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled("   Selected: ", Style::default().fg(Color::Gray)),
         Span::styled(
             "—",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("   SymLinks found: ", Style::default().fg(Color::Gray)),
+        Span::styled(
+            symlinks,
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
