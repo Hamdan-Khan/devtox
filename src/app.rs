@@ -117,6 +117,12 @@ pub struct App {
     pub selected_entries: HashSet<String>,
 }
 
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl App {
     pub fn new() -> App {
         let languages = Language::all();
@@ -178,34 +184,34 @@ impl App {
                         }
                         KeyCode::Char('y') => match &self.scan_state {
                             ScanState::Confirmation => self.scan_dir(),
-                            ScanState::Completed(_) => match self.focus {
-                                PanelFocus::DeletionModal => self.delete_dir(),
-                                _ => {}
-                            },
+                            ScanState::Completed(_) => {
+                                if self.focus == PanelFocus::DeletionModal {
+                                    self.delete_dir()
+                                }
+                            }
                             _ => {}
                         },
                         KeyCode::Char('n') => match self.scan_state {
                             ScanState::Confirmation => self.scan_state = ScanState::Idle,
-                            ScanState::Completed(_) => match self.focus {
-                                PanelFocus::DeletionModal => self.focus = PanelFocus::Results,
-                                _ => {}
-                            },
+                            ScanState::Completed(_) => {
+                                if self.focus == PanelFocus::DeletionModal {
+                                    self.focus = PanelFocus::Results
+                                }
+                            }
                             _ => {}
                         },
-                        KeyCode::Char('a') => match &self.scan_state {
-                            ScanState::Completed(scan_result) => {
+                        KeyCode::Char('a') => {
+                            if let ScanState::Completed(scan_result) = &self.scan_state {
                                 scan_result.scanned_entries.iter().for_each(|entry| {
                                     self.selected_entries.insert(entry.path.to_string());
                                 });
                             }
-                            _ => {}
-                        },
-                        KeyCode::Char('x') => match &self.scan_state {
-                            ScanState::Completed(_) => {
+                        }
+                        KeyCode::Char('x') => {
+                            if let ScanState::Completed(_) = &self.scan_state {
                                 self.selected_entries.clear();
                             }
-                            _ => {}
-                        },
+                        }
                         KeyCode::Char('d') => self.open_deletion_modal(),
                         KeyCode::Tab => self.cycle_focus(),
                         KeyCode::Down => self.on_down(),
@@ -225,11 +231,11 @@ impl App {
     }
 
     fn handle_scan_events(&mut self) {
-        if let Some(rx) = &self.scan_recv {
-            if let Ok(scan_state) = rx.try_recv() {
-                self.scan_state = scan_state;
-            };
-        }
+        if let Some(rx) = &self.scan_recv
+            && let Ok(scan_state) = rx.try_recv()
+        {
+            self.scan_state = scan_state;
+        };
     }
 
     fn scan_dir(&mut self) {
@@ -457,13 +463,10 @@ impl App {
     }
 
     fn open_deletion_modal(&mut self) {
-        match &self.scan_state {
-            ScanState::Completed(_) => {
-                if !self.selected_entries.is_empty() {
-                    self.focus = PanelFocus::DeletionModal
-                }
-            }
-            _ => {}
+        if let ScanState::Completed(_) = &self.scan_state
+            && !self.selected_entries.is_empty()
+        {
+            self.focus = PanelFocus::DeletionModal
         }
     }
 
@@ -506,26 +509,23 @@ impl App {
                 }
             }
             PanelFocus::Results => {
-                match &self.scan_state {
-                    // to toggle entries in the scanned table
-                    ScanState::Completed(result) => {
-                        if let Some(row) = self.table_state.selected() {
-                            let query = self.search_query.to_lowercase();
-                            let found_entry = result
-                                .scanned_entries
-                                .iter()
-                                .filter(|entry| entry_matches_query(entry, &query))
-                                .nth(row);
-                            if let Some(curr) = found_entry {
-                                if self.selected_entries.contains(&curr.path) {
-                                    self.selected_entries.remove(&curr.path);
-                                } else {
-                                    self.selected_entries.insert(curr.path.to_string());
-                                }
-                            };
-                        }
+                // to toggle entries in the scanned table
+                if let ScanState::Completed(result) = &self.scan_state {
+                    if let Some(row) = self.table_state.selected() {
+                        let query = self.search_query.to_lowercase();
+                        let found_entry = result
+                            .scanned_entries
+                            .iter()
+                            .filter(|entry| entry_matches_query(entry, &query))
+                            .nth(row);
+                        if let Some(curr) = found_entry {
+                            if self.selected_entries.contains(&curr.path) {
+                                self.selected_entries.remove(&curr.path);
+                            } else {
+                                self.selected_entries.insert(curr.path.to_string());
+                            }
+                        };
                     }
-                    _ => {}
                 }
             }
             _ => {}
@@ -583,20 +583,14 @@ impl App {
     }
 
     fn on_left(&mut self) {
-        match (&self.focus, &self.scan_state) {
-            (PanelFocus::Results, ScanState::Completed(_)) => {
-                self.table_state.select_previous_column();
-            }
-            _ => {}
+        if let (PanelFocus::Results, ScanState::Completed(_)) = (&self.focus, &self.scan_state) {
+            self.table_state.select_previous_column();
         }
     }
 
     fn on_right(&mut self) {
-        match (&self.focus, &self.scan_state) {
-            (PanelFocus::Results, ScanState::Completed(_)) => {
-                self.table_state.select_next_column();
-            }
-            _ => {}
+        if let (PanelFocus::Results, ScanState::Completed(_)) = (&self.focus, &self.scan_state) {
+            self.table_state.select_next_column();
         }
     }
 

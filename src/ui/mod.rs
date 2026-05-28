@@ -195,14 +195,15 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let search_label: String;
-    if app.search_focused {
-        search_label = "Search (press 'Enter' to search)".to_string();
+
+    let search_label: String = if app.search_focused {
+        "Search (press 'Enter' to search)".to_string()
     } else {
-        search_label = "Search (press 's')".to_string();
-    }
+        "Search (press 's')".to_string()
+    };
+
     let search_display = if app.search_query.is_empty() && !app.search_focused {
-        format!("[Press 's' to search paths]")
+        "[Press 's' to search paths]".to_string()
     } else {
         format!(" {}", app.search_query)
     };
