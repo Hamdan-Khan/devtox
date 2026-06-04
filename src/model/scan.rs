@@ -35,3 +35,16 @@ pub struct ScanStatistics {
     pub scanned_entries: Vec<ScanEntry>,
     pub traversal_state: ScanTraversalState,
 }
+
+// paths of deleted entries extracted from the set of selected entries
+// Will be used through channels to update the entries state i.e. remove the deleted ones
+pub type DeletedEntries = Vec<String>;
+
+// delete states associated with delete actions after scanning
+#[derive(PartialEq)]
+pub enum DeleteState {
+    None,
+    Confirmation,
+    InProgress,
+    Completed(DeletedEntries),
+}

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::{
     app::App,
-    model::scan::{ScanResult, ScanState},
+    model::scan::{DeleteState, ScanResult, ScanState},
     ui::state::PanelFocus,
     utils::{entry_matches_query, format_size_str},
 };
@@ -348,7 +348,7 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_deletion_modal(frame: &mut Frame, app: &App, area: Rect) {
-    if app.focus == PanelFocus::DeletionModal {
+    if app.delete_state == DeleteState::Confirmation {
         let popup_block = styled_block("Delete selected folders", true);
         let centered_area = area.centered(Constraint::Percentage(60), Constraint::Percentage(40));
         frame.render_widget(Clear, centered_area);

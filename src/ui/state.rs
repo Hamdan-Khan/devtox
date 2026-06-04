@@ -41,5 +41,4 @@ pub enum PanelFocus {
     Artifacts,
     Results,
     InputModal,
-    DeletionModal,
 }

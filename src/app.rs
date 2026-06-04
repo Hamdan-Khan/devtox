@@ -2,7 +2,10 @@ use crate::{
     model::{
         artifact::ArtifactKind,
         language::Language,
-        scan::{ScanEntry, ScanResult, ScanState, ScanStatistics, ScanTraversalState},
+        scan::{
+            DeleteState, DeletedEntries, ScanEntry, ScanResult, ScanState, ScanStatistics,
+            ScanTraversalState,
+        },
     },
     ui::{
         draw,
@@ -18,7 +21,7 @@ use std::{
     fs, io,
     sync::mpsc::{self, Receiver},
     thread,
-    time::Duration,
+    time::{self, Duration},
     vec,
 };
 use tracing::{debug, error, info};
@@ -31,6 +34,7 @@ pub struct App {
     pub scan_state: ScanState,
     pub selected_entry_dir: String,
     scan_recv: Option<Receiver<ScanState>>,
+    delete_recv: Option<Receiver<DeleteState>>,
     pub tick: u64,
     pub show_input_modal: bool,
     pub table_state: TableState,
@@ -38,6 +42,7 @@ pub struct App {
     pub search_focused: bool,
     pub search_char_index: usize,
     pub selected_entries: HashSet<String>,
+    pub delete_state: DeleteState,
 }
 
 impl Default for App {
@@ -62,6 +67,7 @@ impl App {
             scan_state: ScanState::Idle,
             selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox/test"),
             scan_recv: None,
+            delete_recv: None,
             tick: 0,
             show_input_modal: false,
             table_state,
@@ -69,6 +75,7 @@ impl App {
             search_focused: false,
             search_char_index: 0,
             selected_entries: HashSet::new(),
+            delete_state: DeleteState::None,
         }
     }
 
@@ -108,7 +115,7 @@ impl App {
                         KeyCode::Char('y') => match &self.scan_state {
                             ScanState::Confirmation => self.scan_dir(),
                             ScanState::Completed(_) => {
-                                if self.focus == PanelFocus::DeletionModal {
+                                if self.delete_state == DeleteState::Confirmation {
                                     self.delete_dir()
                                 }
                             }
@@ -117,8 +124,8 @@ impl App {
                         KeyCode::Char('n') => match self.scan_state {
                             ScanState::Confirmation => self.scan_state = ScanState::Idle,
                             ScanState::Completed(_) => {
-                                if self.focus == PanelFocus::DeletionModal {
-                                    self.focus = PanelFocus::Results
+                                if self.delete_state == DeleteState::Confirmation {
+                                    self.delete_state = DeleteState::None
                                 }
                             }
                             _ => {}
@@ -158,6 +165,17 @@ impl App {
             && let Ok(scan_state) = rx.try_recv()
         {
             self.scan_state = scan_state;
+        };
+
+        if let Some(rx) = &self.delete_recv
+            && let Ok(delete_state) = rx.try_recv()
+            && let DeleteState::Completed(deleted) = delete_state
+        {
+            if let ScanState::Completed(ref mut result) = self.scan_state {
+                result
+                    .scanned_entries
+                    .retain(|e| !deleted.contains(&e.path));
+            }
         };
     }
 
@@ -389,29 +407,35 @@ impl App {
         if let ScanState::Completed(_) = &self.scan_state
             && !self.selected_entries.is_empty()
         {
-            self.focus = PanelFocus::DeletionModal
+            self.delete_state = DeleteState::Confirmation;
         }
     }
 
     fn delete_dir(&mut self) {
-        // close the confirmation modal
-        self.focus = PanelFocus::Results;
-        let mut deleted: Vec<String> = vec![];
+        let mut deleted: DeletedEntries = vec![];
 
-        for entry in self.selected_entries.drain() {
-            if let Err(e) = fs::remove_dir_all(&entry) {
-                error!("Error deleting {}", e);
-            } else {
-                debug!("Deleted {}", &entry);
-                deleted.push(entry);
-            };
-        }
+        let (tx, rx) = mpsc::channel::<DeleteState>();
+        self.delete_recv = Some(rx);
+        let mut selected_entries = self.selected_entries.clone();
 
-        if let ScanState::Completed(ref mut result) = self.scan_state {
-            result
-                .scanned_entries
-                .retain(|e| !deleted.contains(&e.path));
-        }
+        let _ = thread::spawn(move || {
+            tx.send(DeleteState::InProgress).ok();
+
+            // test
+            let delay = time::Duration::from_secs(2);
+            thread::sleep(delay);
+
+            for entry in selected_entries.drain() {
+                if let Err(e) = fs::remove_dir_all(&entry) {
+                    error!("Error deleting {}", e);
+                } else {
+                    debug!("Deleted {}", &entry);
+                    deleted.push(entry);
+                };
+            }
+
+            tx.send(DeleteState::Completed(deleted)).ok();
+        });
     }
 
     fn handle_enter_key(&mut self) {
@@ -473,7 +497,6 @@ impl App {
             PanelFocus::Artifacts => PanelFocus::Languages,
             PanelFocus::Results => PanelFocus::Results,
             PanelFocus::InputModal => PanelFocus::InputModal,
-            PanelFocus::DeletionModal => PanelFocus::DeletionModal,
         };
     }
 
