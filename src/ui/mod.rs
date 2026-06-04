@@ -1,7 +1,11 @@
+pub mod state;
+
 use std::collections::HashSet;
 
 use crate::{
-    app::{App, PanelFocus, ScanResult, ScanState},
+    app::App,
+    model::scan::{ScanResult, ScanState},
+    ui::state::PanelFocus,
     utils::{entry_matches_query, format_size_str},
 };
 use ratatui::{

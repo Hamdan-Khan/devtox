@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Result};
 
-use crate::app::ScanEntry;
+use crate::model::scan::ScanEntry;
 
 #[derive(Clone, Copy)]
 pub enum SizeUnit {

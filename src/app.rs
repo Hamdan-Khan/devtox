@@ -1,6 +1,13 @@
 use crate::{
-    model::{ArtifactKind, Language},
-    ui::draw,
+    model::{
+        artifact::ArtifactKind,
+        language::Language,
+        scan::{ScanEntry, ScanResult, ScanState, ScanStatistics, ScanTraversalState},
+    },
+    ui::{
+        draw,
+        state::{PanelFocus, StatefulList},
+    },
     utils::entry_matches_query,
 };
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -15,90 +22,6 @@ use std::{
     vec,
 };
 use tracing::{debug, error, info};
-
-// stateful wrapper around vector to keep track of the selected item
-// (will use in languages and artifacts sections for now)
-#[derive(Clone)]
-pub struct StatefulList<T> {
-    pub items: Vec<T>,
-    pub selected: usize,
-}
-
-impl<T> StatefulList<T> {
-    pub fn new(items: Vec<T>) -> Self {
-        Self { items, selected: 0 }
-    }
-
-    pub fn next(&mut self) {
-        if !self.items.is_empty() {
-            // cyrcles back to 0th index when overflows
-            self.selected = (self.selected + 1) % self.items.len();
-        }
-    }
-
-    pub fn previous(&mut self) {
-        if !self.items.is_empty() {
-            // cycles back to n-1th index when underflows
-            if self.selected == 0 {
-                self.selected = self.items.len() - 1
-            } else {
-                self.selected -= 1;
-            };
-        }
-    }
-
-    pub fn selected_item(&self) -> Option<&T> {
-        self.items.get(self.selected)
-    }
-}
-
-// the input panels on the left side
-#[derive(PartialEq)]
-pub enum PanelFocus {
-    Languages,
-    Artifacts,
-    Results,
-    InputModal,
-    DeletionModal,
-}
-
-#[derive(PartialEq, Debug)]
-pub struct ScanEntry {
-    pub path: String,
-    pub size: u64,
-}
-
-enum ScanTraversalState {
-    Outside,
-    Inside { accumulated_size: u64, path: String },
-}
-
-#[derive(Default, PartialEq)]
-pub struct ScanResult {
-    pub total_size: u64,
-    pub symlink_count: u64,
-    pub error_count: u64,
-    pub scanned_entries: Vec<ScanEntry>,
-}
-
-#[derive(PartialEq)]
-pub enum ScanState {
-    Idle,
-    Confirmation,
-    InProgress,
-    Error,
-    Completed(ScanResult),
-}
-
-struct ScanStatistics {
-    total_size: u64,
-    symlink_count: u64,
-    error_count: u64,
-    is_target_dir: bool,
-    depth: usize,
-    scanned_entries: Vec<ScanEntry>,
-    traversal_state: ScanTraversalState,
-}
 
 pub struct App {
     pub language_list: StatefulList<Language>,
@@ -137,7 +60,7 @@ impl App {
             focus: PanelFocus::Languages,
             exit: false,
             scan_state: ScanState::Idle,
-            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox/as"),
+            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox/test"),
             scan_recv: None,
             tick: 0,
             show_input_modal: false,
