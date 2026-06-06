@@ -19,6 +19,8 @@ use ratatui::{
     },
 };
 
+const SPINNER_STATES: &[&str] = &["⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"];
+
 // basically 1. splits the frame into rects (i.e. sections) and
 // 2. renders ui stuff on those frame sections mostly based on the app state (reason for passing app ref)
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -97,8 +99,6 @@ fn keybind_line(key: &str, desc: &str) -> String {
 }
 
 fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
-    const SPINNER_STATES: &[&str] = &["⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"];
-
     let focused = app.focus == PanelFocus::Results;
     let text_color = if focused {
         Color::White
@@ -348,9 +348,9 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_deletion_modal(frame: &mut Frame, app: &App, area: Rect) {
-    if app.delete_state == DeleteState::Confirmation {
+    if app.delete_state != DeleteState::None {
         let popup_block = styled_block("Delete selected folders", true);
-        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Percentage(40));
+        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Max(12));
         frame.render_widget(Clear, centered_area);
 
         // text area + button bar
@@ -366,48 +366,96 @@ fn render_deletion_modal(frame: &mut Frame, app: &App, area: Rect) {
         );
         frame.render_widget(popup_block, centered_area);
 
-        let text = Text::from(vec![
-            Line::from("Are you sure you want to delete the selected folders?"),
-            Line::from("This action is destructive and cannot be undone."),
-            Line::from(vec![
-                Span::raw("Please proceed with "),
-                Span::styled(
-                    "caution",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("!"),
+        let text = match &app.delete_state {
+            DeleteState::Confirmation => Text::from(vec![
+                // manually adding new line to all cases because formatting the final Text widget overrides the
+                // styles applied to text
+                Line::from("\n"),
+                Line::from("Are you sure you want to delete the selected folders?"),
+                Line::from("This action is destructive and cannot be undone."),
+                Line::from(vec![
+                    Span::raw("Please proceed with "),
+                    Span::styled(
+                        "caution",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("!"),
+                ]),
             ]),
-        ]);
+            DeleteState::InProgress => {
+                // loading animation
+                let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
+                Text::from(format!(
+                    "\nDeleting selected entries... {}",
+                    SPINNER_STATES[state_index]
+                ))
+            }
+            DeleteState::Completed(result) => {
+                let total = result.len().to_string();
+
+                Text::from(vec![
+                    Line::from("\n"),
+                    Line::from(vec![
+                        Span::raw("Successfully deleted "),
+                        Span::styled(
+                            total,
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(" entries!"),
+                    ]),
+                ])
+            }
+            DeleteState::None => Text::from("-"),
+        };
 
         let paragraph = Paragraph::new(text)
             .style(Style::default().bg(Color::Rgb(46, 46, 46)))
             .alignment(Alignment::Center);
+
         frame.render_widget(paragraph, layout[0]);
 
         // split button area into two halves
         let button_layout =
             Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(layout[1]);
 
-        let yes_button = Paragraph::new("Yes, Proceed [y]")
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red)),
-            )
-            .style(Style::default().fg(Color::Red));
+        match &app.delete_state {
+            DeleteState::Completed(_) => {
+                // using the full layout[1] area i.e. before splitting for the 2 buttons
+                let continue_button = Paragraph::new("Continue [enter]")
+                    .alignment(Alignment::Center)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Green)),
+                    )
+                    .style(Style::default().fg(Color::Green));
+                frame.render_widget(continue_button, layout[1]);
+            }
+            _ => {
+                let yes_button = Paragraph::new("Yes, Proceed [y]")
+                    .alignment(Alignment::Center)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Red)),
+                    )
+                    .style(Style::default().fg(Color::Red));
 
-        let no_button = Paragraph::new("No, go back [n]")
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green)),
-            )
-            .style(Style::default().fg(Color::Green));
+                let no_button = Paragraph::new("No, go back [n]")
+                    .alignment(Alignment::Center)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Green)),
+                    )
+                    .style(Style::default().fg(Color::Green));
 
-        frame.render_widget(yes_button, button_layout[0]);
-        frame.render_widget(no_button, button_layout[1]);
+                frame.render_widget(yes_button, button_layout[0]);
+                frame.render_widget(no_button, button_layout[1]);
+            }
+        }
     }
 }
 

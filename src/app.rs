@@ -116,7 +116,7 @@ impl App {
                             ScanState::Confirmation => self.scan_dir(),
                             ScanState::Completed(_) => {
                                 if self.delete_state == DeleteState::Confirmation {
-                                    self.delete_dir()
+                                    self.delete_dir();
                                 }
                             }
                             _ => {}
@@ -131,6 +131,7 @@ impl App {
                             _ => {}
                         },
                         KeyCode::Char('a') => {
+                            // todo: handle delete modal states too
                             if let ScanState::Completed(scan_result) = &self.scan_state {
                                 scan_result.scanned_entries.iter().for_each(|entry| {
                                     self.selected_entries.insert(entry.path.to_string());
@@ -169,13 +170,18 @@ impl App {
 
         if let Some(rx) = &self.delete_recv
             && let Ok(delete_state) = rx.try_recv()
-            && let DeleteState::Completed(deleted) = delete_state
         {
-            if let ScanState::Completed(ref mut result) = self.scan_state {
+            // get the deleted entries from the channel and remove them from stored entries
+            // state, if the delete process has been completed
+            if let DeleteState::Completed(ref deleted) = delete_state
+                && let ScanState::Completed(ref mut result) = self.scan_state
+            {
                 result
                     .scanned_entries
                     .retain(|e| !deleted.contains(&e.path));
             }
+
+            self.delete_state = delete_state;
         };
     }
 
@@ -412,6 +418,7 @@ impl App {
     }
 
     fn delete_dir(&mut self) {
+        debug!("before thread");
         let mut deleted: DeletedEntries = vec![];
 
         let (tx, rx) = mpsc::channel::<DeleteState>();
@@ -419,20 +426,23 @@ impl App {
         let mut selected_entries = self.selected_entries.clone();
 
         let _ = thread::spawn(move || {
+            debug!("before loading");
             tx.send(DeleteState::InProgress).ok();
 
+            debug!("before deletion");
             // test
             let delay = time::Duration::from_secs(2);
             thread::sleep(delay);
 
-            for entry in selected_entries.drain() {
-                if let Err(e) = fs::remove_dir_all(&entry) {
-                    error!("Error deleting {}", e);
-                } else {
-                    debug!("Deleted {}", &entry);
-                    deleted.push(entry);
-                };
-            }
+            // for entry in selected_entries.drain() {
+            //     if let Err(e) = fs::remove_dir_all(&entry) {
+            //         error!("Error deleting {}", e);
+            //     } else {
+            //         debug!("Deleted {}", &entry);
+            //         deleted.push(entry);
+            //     };
+            // }
+            debug!("after deletion");
 
             tx.send(DeleteState::Completed(deleted)).ok();
         });
