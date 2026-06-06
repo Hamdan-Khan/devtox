@@ -313,6 +313,10 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
         ScanState::Completed(scan_result) => format_size_str(scan_result.total_size as f64),
         _ => String::from("0"),
     };
+    let selected_size = match &app.scan_state {
+        ScanState::Completed(_) => format_size_str(app.selected_size as f64),
+        _ => String::from("0"),
+    };
     let symlinks = match &app.scan_state {
         ScanState::Completed(scan_result) => scan_result.symlink_count.to_string(),
         _ => String::from("—"),
@@ -328,7 +332,7 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled("   Selected: ", Style::default().fg(Color::Gray)),
         Span::styled(
-            "—",
+            selected_size,
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),

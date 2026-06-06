@@ -21,7 +21,7 @@ use std::{
     fs, io,
     sync::mpsc::{self, Receiver},
     thread,
-    time::{self, Duration},
+    time::Duration,
     vec,
 };
 use tracing::{debug, error, info};
@@ -42,6 +42,7 @@ pub struct App {
     pub search_focused: bool,
     pub search_char_index: usize,
     pub selected_entries: HashSet<String>,
+    pub selected_size: u64,
     pub delete_state: DeleteState,
 }
 
@@ -75,13 +76,14 @@ impl App {
             search_focused: false,
             search_char_index: 0,
             selected_entries: HashSet::new(),
+            selected_size: 0,
             delete_state: DeleteState::None,
         }
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         while !self.exit {
-            self.handle_scan_events();
+            self.handle_threads_events();
             terminal.draw(|frame| draw(frame, self))?;
             self.handle_events()?;
         }
@@ -131,16 +133,17 @@ impl App {
                             _ => {}
                         },
                         KeyCode::Char('a') => {
-                            // todo: handle delete modal states too
                             if let ScanState::Completed(scan_result) = &self.scan_state {
                                 scan_result.scanned_entries.iter().for_each(|entry| {
                                     self.selected_entries.insert(entry.path.to_string());
                                 });
+                                self.selected_size = scan_result.total_size;
                             }
                         }
                         KeyCode::Char('x') => {
                             if let ScanState::Completed(_) = &self.scan_state {
                                 self.selected_entries.clear();
+                                self.selected_size = 0;
                             }
                         }
                         KeyCode::Char('d') => self.open_deletion_modal(),
@@ -161,7 +164,7 @@ impl App {
         Ok(())
     }
 
-    fn handle_scan_events(&mut self) {
+    fn handle_threads_events(&mut self) {
         if let Some(rx) = &self.scan_recv
             && let Ok(scan_state) = rx.try_recv()
         {
@@ -171,14 +174,28 @@ impl App {
         if let Some(rx) = &self.delete_recv
             && let Ok(delete_state) = rx.try_recv()
         {
-            // get the deleted entries from the channel and remove them from stored entries
-            // state, if the delete process has been completed
+            // get the deleted entries from the channel and sync them with stored entries
+            // state, after the deletion has been completed
             if let DeleteState::Completed(ref deleted) = delete_state
                 && let ScanState::Completed(ref mut result) = self.scan_state
             {
                 result
                     .scanned_entries
                     .retain(|e| !deleted.contains(&e.path));
+
+                result.total_size = result.scanned_entries.iter().map(|x| x.size).sum();
+
+                self.selected_size = result
+                    .scanned_entries
+                    .iter()
+                    .map(|x| {
+                        if self.selected_entries.contains(&x.path) {
+                            x.size
+                        } else {
+                            0
+                        }
+                    })
+                    .sum();
             }
 
             self.delete_state = delete_state;
@@ -412,13 +429,14 @@ impl App {
     fn open_deletion_modal(&mut self) {
         if let ScanState::Completed(_) = &self.scan_state
             && !self.selected_entries.is_empty()
+            && self.delete_state == DeleteState::None
         {
             self.delete_state = DeleteState::Confirmation;
+            self.focus = PanelFocus::DeleteModal
         }
     }
 
     fn delete_dir(&mut self) {
-        debug!("before thread");
         let mut deleted: DeletedEntries = vec![];
 
         let (tx, rx) = mpsc::channel::<DeleteState>();
@@ -426,24 +444,23 @@ impl App {
         let mut selected_entries = self.selected_entries.clone();
 
         let _ = thread::spawn(move || {
-            debug!("before loading");
             tx.send(DeleteState::InProgress).ok();
 
-            debug!("before deletion");
             // test
-            let delay = time::Duration::from_secs(2);
-            thread::sleep(delay);
+            // let delay = time::Duration::from_secs(2);
+            // thread::sleep(delay);
 
-            // for entry in selected_entries.drain() {
-            //     if let Err(e) = fs::remove_dir_all(&entry) {
-            //         error!("Error deleting {}", e);
-            //     } else {
-            //         debug!("Deleted {}", &entry);
-            //         deleted.push(entry);
-            //     };
-            // }
-            debug!("after deletion");
+            // delete selected directories
+            for entry in selected_entries.drain() {
+                if let Err(e) = fs::remove_dir_all(&entry) {
+                    error!("Error deleting {}", e);
+                } else {
+                    debug!("Deleted {}", &entry);
+                    deleted.push(entry);
+                };
+            }
 
+            // transmit deleted entries to receiver
             tx.send(DeleteState::Completed(deleted)).ok();
         });
     }
@@ -478,11 +495,19 @@ impl App {
                         if let Some(curr) = found_entry {
                             if self.selected_entries.contains(&curr.path) {
                                 self.selected_entries.remove(&curr.path);
+                                self.selected_size -= curr.size;
                             } else {
                                 self.selected_entries.insert(curr.path.to_string());
+                                self.selected_size += curr.size;
                             }
                         };
                     }
+                }
+            }
+            PanelFocus::DeleteModal => {
+                if let DeleteState::Completed(_) = &self.delete_state {
+                    self.focus = PanelFocus::Results;
+                    self.delete_state = DeleteState::None;
                 }
             }
             _ => {}
@@ -507,6 +532,7 @@ impl App {
             PanelFocus::Artifacts => PanelFocus::Languages,
             PanelFocus::Results => PanelFocus::Results,
             PanelFocus::InputModal => PanelFocus::InputModal,
+            PanelFocus::DeleteModal => PanelFocus::DeleteModal,
         };
     }
 
