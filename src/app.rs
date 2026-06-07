@@ -1,4 +1,5 @@
 use crate::{
+    data::Data,
     model::{
         artifact::ArtifactKind,
         language::Language,
@@ -9,6 +10,7 @@ use crate::{
     },
     ui::{
         draw,
+        input::InputState,
         state::{PanelFocus, StatefulList},
     },
     utils::entry_matches_query,
@@ -32,18 +34,18 @@ pub struct App {
     pub focus: PanelFocus,
     pub exit: bool,
     pub scan_state: ScanState,
-    pub selected_entry_dir: String,
     scan_recv: Option<Receiver<ScanState>>,
     delete_recv: Option<Receiver<DeleteState>>,
     pub tick: u64,
     pub show_input_modal: bool,
     pub table_state: TableState,
-    pub search_query: String,
+    pub search_input: InputState,
     pub search_focused: bool,
-    pub search_char_index: usize,
     pub selected_entries: HashSet<String>,
     pub selected_size: u64,
     pub delete_state: DeleteState,
+    pub data: Data,
+    pub path_input: InputState,
 }
 
 impl Default for App {
@@ -66,18 +68,18 @@ impl App {
             focus: PanelFocus::Languages,
             exit: false,
             scan_state: ScanState::Idle,
-            selected_entry_dir: String::from("/home/hamdan/Documents/Development/rust/devtox/test"),
             scan_recv: None,
             delete_recv: None,
             tick: 0,
             show_input_modal: false,
             table_state,
-            search_query: String::new(),
+            search_input: InputState::default(),
             search_focused: false,
-            search_char_index: 0,
             selected_entries: HashSet::new(),
             selected_size: 0,
             delete_state: DeleteState::None,
+            data: Data::default(),
+            path_input: InputState::default(),
         }
     }
 
@@ -99,6 +101,8 @@ impl App {
                 }
                 if self.search_focused {
                     self.handle_input_keys(key);
+                } else if self.focus == PanelFocus::PathInputModal {
+                    self.handle_path_input_keys(key);
                 } else {
                     match key.code {
                         KeyCode::Char('q') => self.exit = true,
@@ -147,6 +151,13 @@ impl App {
                             }
                         }
                         KeyCode::Char('d') => self.open_deletion_modal(),
+                        KeyCode::Char('p') => {
+                            if self.scan_state == ScanState::Idle
+                                && self.focus == PanelFocus::Results
+                            {
+                                self.focus = PanelFocus::PathInputModal
+                            }
+                        }
                         KeyCode::Tab => self.cycle_focus(),
                         KeyCode::Down => self.on_down(),
                         KeyCode::Up => self.on_up(),
@@ -208,7 +219,7 @@ impl App {
         let (tx, rx) = mpsc::channel::<ScanState>();
         self.scan_recv = Some(rx);
 
-        let dir = self.selected_entry_dir.clone();
+        let dir = self.data.selected_entry_dir.clone();
         let artifact = self.artifact_list.selected_item().cloned();
 
         if let Some(artifact) = artifact {
@@ -361,67 +372,35 @@ impl App {
         }
     }
 
-    fn move_cursor_left(&mut self) {
-        if self.search_char_index > 0 {
-            self.search_char_index -= 1;
-        }
-    }
-
-    fn move_cursor_right(&mut self) {
-        if self.search_char_index < self.search_query.len() {
-            self.search_char_index += 1;
-        }
-    }
-
-    /// Returns the byte index based on the character position.
-    ///
-    /// Since each character in a string can contain multiple bytes, it's necessary to calculate
-    /// the byte index based on the index of the character.
-    fn byte_index(&self) -> usize {
-        self.search_query
-            .char_indices()
-            .map(|(i, _)| i)
-            .nth(self.search_char_index)
-            .unwrap_or(self.search_query.len())
-    }
-
-    fn enter_char(&mut self, to_insert: char) {
-        let index = self.byte_index();
-        self.search_query.insert(index, to_insert);
-        self.move_cursor_right();
-    }
-
-    fn delete_search_char(&mut self) {
-        let is_not_cursor_leftmost = self.search_char_index != 0;
-        if is_not_cursor_leftmost {
-            // Method "remove" is not used on the saved text for deleting the selected char.
-            // Reason: Using remove on String works on bytes instead of the chars.
-            // Using remove would require special care because of char boundaries.
-
-            let current_index = self.search_char_index;
-            let from_left_to_current_index = current_index - 1;
-
-            // Getting all characters before the selected character.
-            let before_char_to_delete = self.search_query.chars().take(from_left_to_current_index);
-            // Getting all characters after selected character.
-            let after_char_to_delete = self.search_query.chars().skip(current_index);
-
-            // Put all characters together except the selected one.
-            // By leaving the selected one out, it is forgotten and therefore deleted.
-            self.search_query = before_char_to_delete.chain(after_char_to_delete).collect();
-            self.move_cursor_left();
-        }
-    }
-
     fn handle_input_keys(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Enter | KeyCode::Esc => {
                 self.search_focused = false;
             }
-            KeyCode::Char(to_insert) => self.enter_char(to_insert),
-            KeyCode::Left => self.move_cursor_left(),
-            KeyCode::Right => self.move_cursor_right(),
-            KeyCode::Backspace => self.delete_search_char(),
+            KeyCode::Char(to_insert) => self.search_input.enter_char(to_insert),
+            KeyCode::Left => self.search_input.move_cursor_left(),
+            KeyCode::Right => self.search_input.move_cursor_right(),
+            KeyCode::Backspace => self.search_input.delete_search_char(),
+            _ => {}
+        }
+    }
+
+    fn handle_path_input_keys(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.focus = PanelFocus::Results;
+                // flush input
+                self.path_input.query = String::new();
+            }
+            KeyCode::Enter => {
+                self.focus = PanelFocus::Results;
+                self.path_input.query = String::new();
+                // todo: update config data.selected entry dir with the search query (might need to handle error case too when jwalkdir encounters invalid path)
+            }
+            KeyCode::Char(c) => self.path_input.enter_char(c),
+            KeyCode::Left => self.path_input.move_cursor_left(),
+            KeyCode::Right => self.path_input.move_cursor_right(),
+            KeyCode::Backspace => self.path_input.delete_search_char(),
             _ => {}
         }
     }
@@ -486,7 +465,7 @@ impl App {
                 // to toggle entries in the scanned table
                 if let ScanState::Completed(result) = &self.scan_state {
                     if let Some(row) = self.table_state.selected() {
-                        let query = self.search_query.to_lowercase();
+                        let query = self.search_input.query.to_lowercase();
                         let found_entry = result
                             .scanned_entries
                             .iter()
@@ -533,6 +512,7 @@ impl App {
             PanelFocus::Results => PanelFocus::Results,
             PanelFocus::InputModal => PanelFocus::InputModal,
             PanelFocus::DeleteModal => PanelFocus::DeleteModal,
+            PanelFocus::PathInputModal => PanelFocus::PathInputModal,
         };
     }
 

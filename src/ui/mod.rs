@@ -1,3 +1,4 @@
+pub mod input;
 pub mod state;
 
 use std::collections::HashSet;
@@ -44,6 +45,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     render_stats(frame, app, stats_area);
     render_input_modal(frame, app, area);
     render_deletion_modal(frame, app, area);
+    render_path_input_modal(frame, app, area);
 }
 
 fn render_languages(frame: &mut Frame, app: &App, area: Rect) {
@@ -139,7 +141,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                 let table = generate_scanned_table(
                     scan_result,
                     focused,
-                    &app.search_query,
+                    &app.search_input.query,
                     &app.selected_entries,
                 );
                 frame.render_stateful_widget(table, sections[2], &mut app.table_state);
@@ -147,19 +149,21 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
             _ => {
                 let description = match &app.scan_state {
                     ScanState::Idle => format!(
-                        "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}",
+                        "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}\n{}",
                         artifact.display_name(),
                         lang.display_name(),
                         keybind_line("<Enter>", "select language / artifact"),
+                        keybind_line("<p>", "set entry path to start the scan from"),
                         keybind_line("<s>", "start scan"),
                         keybind_line("<Tab>", "switch selection panels"),
                         keybind_line("<Esc>", "go back to selection"),
                         keybind_line("<q>", "quit"),
                     ),
                     ScanState::Confirmation => format!(
-                        "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}\n{}",
+                        "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}\n{}\n{}",
                         artifact.display_name(),
-                        app.selected_entry_dir,
+                        app.data.selected_entry_dir,
+                        keybind_line("<p>", "set entry path to start the scan from"),
                         keybind_line("<y>", "to proceed"),
                         keybind_line("<n>", "to abort"),
                         keybind_line("<q>", "quit"),
@@ -169,7 +173,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                         let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
                         format!(
                             "Scanning '{}' {}",
-                            app.selected_entry_dir, SPINNER_STATES[state_index]
+                            app.data.selected_entry_dir, SPINNER_STATES[state_index]
                         )
                     }
                     ScanState::Error => String::from("Couldn't scan due to an error."),
@@ -206,10 +210,10 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
         "Search (press 's')".to_string()
     };
 
-    let search_display = if app.search_query.is_empty() && !app.search_focused {
+    let search_display = if app.search_input.query.is_empty() && !app.search_focused {
         "[Press 's' to search paths]".to_string()
     } else {
-        format!(" {}", app.search_query)
+        format!(" {}", app.search_input.query)
     };
     let search_bar = Paragraph::new(search_display)
         .style(search_style)
@@ -219,14 +223,14 @@ fn render_search_input(frame: &mut Frame, app: &App, area: Rect) {
     if app.search_focused {
         // Draw the cursor at the current position in the input field.
         // This position can be controlled via the left and right arrow key
-        let x_pos: u16 = if app.search_query.is_empty() {
+        let x_pos: u16 = if app.search_input.query.is_empty() {
             // for empty search query, cursor should be at 0th column
             // hence the area's x + 1 as compared to when search query is written to,
             // we want the cursor one column ahead of the character that is written
             // hence area's x coordinate + cursor index + 2
             area.x + 1
         } else {
-            area.x + app.search_char_index as u16 + 2
+            area.x + app.search_input.char_index as u16 + 2
         };
         frame.set_cursor_position(Position::new(
             x_pos,
@@ -460,6 +464,93 @@ fn render_deletion_modal(frame: &mut Frame, app: &App, area: Rect) {
                 frame.render_widget(no_button, button_layout[1]);
             }
         }
+    }
+}
+
+fn render_path_input_modal(frame: &mut Frame, app: &App, area: Rect) {
+    if app.focus == PanelFocus::PathInputModal {
+        let popup_block = styled_block("Search Directory Path", true);
+        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Max(11));
+        frame.render_widget(Clear, centered_area);
+
+        // text area + button bar
+        let layout = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+        ])
+        .split(popup_block.inner(centered_area));
+
+        // outer block
+        frame.render_widget(
+            Block::default()
+                .style(Style::default().bg(Color::Rgb(46, 46, 46)))
+                .borders(Borders::ALL),
+            centered_area,
+        );
+        frame.render_widget(popup_block, centered_area);
+
+        // current path
+        let curr = format!(" {}", &app.data.selected_entry_dir);
+        let current_path = Paragraph::new(curr)
+            .block(Block::default().borders(Borders::ALL))
+            .style(Style::default().fg(Color::White));
+        frame.render_widget(current_path, layout[0]);
+
+        // path input
+        let search_style = if app.path_input.query.is_empty() {
+            Style::default().fg(Color::Gray)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        let search_label: String = "Path (absolute path)".to_string();
+        let search_display = if app.path_input.query.is_empty() {
+            "   [Start typing path of the directory where you want to initiate the search]"
+                .to_string()
+        } else {
+            format!(" {}", app.path_input.query)
+        };
+        let search_bar = Paragraph::new(search_display)
+            .style(search_style)
+            .block(Block::bordered().title(search_label));
+        frame.render_widget(search_bar, layout[1]);
+
+        // read render_search_input version for detail
+        let x_pos: u16 = if app.path_input.query.is_empty() {
+            layout[1].x + 1
+        } else {
+            layout[1].x + app.path_input.char_index as u16 + 2
+        };
+        frame.set_cursor_position(Position::new(
+            x_pos,
+            // Move one line down, from the border to the input line
+            layout[1].y + 1,
+        ));
+
+        // buttons
+        let button_layout =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(layout[2]);
+
+        let cancel_button = Paragraph::new("Cancel, don't update [Esc]")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)),
+            )
+            .style(Style::default().fg(Color::Red));
+
+        let update_button = Paragraph::new("Save, update path [Enter]")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green)),
+            )
+            .style(Style::default().fg(Color::Green));
+
+        frame.render_widget(cancel_button, button_layout[0]);
+        frame.render_widget(update_button, button_layout[1]);
     }
 }
 

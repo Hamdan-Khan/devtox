@@ -42,4 +42,5 @@ pub enum PanelFocus {
     Results,
     InputModal,
     DeleteModal,
+    PathInputModal,
 }
