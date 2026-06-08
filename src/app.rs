@@ -390,12 +390,13 @@ impl App {
             KeyCode::Esc => {
                 self.focus = PanelFocus::Results;
                 // flush input
-                self.path_input.query = String::new();
+                self.path_input.clear();
             }
             KeyCode::Enter => {
                 self.focus = PanelFocus::Results;
-                self.path_input.query = String::new();
-                // todo: update config data.selected entry dir with the search query (might need to handle error case too when jwalkdir encounters invalid path)
+                // todo: handle error case too when jwalkdir encounters invalid path
+                self.data.update_dir(self.path_input.query.clone());
+                self.path_input.clear();
             }
             KeyCode::Char(c) => self.path_input.enter_char(c),
             KeyCode::Left => self.path_input.move_cursor_left(),
