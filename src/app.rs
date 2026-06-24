@@ -427,7 +427,6 @@ impl App {
             }
             KeyCode::Enter => {
                 self.focus = PanelFocus::Results;
-                // todo: handle error case too when jwalkdir encounters invalid path
                 self.data.update_dir(self.path_input.query.clone());
                 self.path_input.clear();
             }

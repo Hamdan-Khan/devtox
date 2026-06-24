@@ -2,7 +2,7 @@ pub fn init_tracing() {
     #[cfg(feature = "dev-tracing")]
     {
         use std::fs::OpenOptions;
-        use tracing_subscriber::{fmt, EnvFilter};
+        use tracing_subscriber::{EnvFilter, fmt};
 
         let file = OpenOptions::new()
             .create(true)

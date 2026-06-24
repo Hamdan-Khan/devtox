@@ -147,7 +147,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                 frame.render_stateful_widget(table, sections[2], &mut app.table_state);
             }
             _ => {
-                let description = match &app.scan_state {
+                let description : Text = match &app.scan_state {
                     ScanState::Idle => format!(
                         "Ready to scan for '{}' ({}) directories.\n\nPress\n{}\n{}\n{}\n{}\n{}\n{}",
                         artifact.display_name(),
@@ -158,7 +158,8 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                         keybind_line("<Tab>", "switch selection panels"),
                         keybind_line("<Esc>", "go back to selection"),
                         keybind_line("<q>", "quit"),
-                    ),
+                    )
+                    .into(),
                     ScanState::Confirmation => format!(
                         "Are you sure you want to scan for all the '{}' directories in '{}'?\n\nPress\n{}\n{}\n{}\n{}",
                         artifact.display_name(),
@@ -167,17 +168,40 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                         keybind_line("<y>", "to proceed"),
                         keybind_line("<n>", "to abort"),
                         keybind_line("<q>", "quit"),
-                    ),
+                    ).into(),
                     ScanState::InProgress => {
                         // loading animation
                         let state_index = ((app.tick / 6) as usize) % SPINNER_STATES.len();
                         format!(
                             "Scanning '{}' {}",
                             app.data.selected_entry_dir, SPINNER_STATES[state_index]
-                        )
+                        ).into()
                     }
-                    // todo: display metadata
-                    ScanState::Error(_) => String::from("Couldn't scan due to an error."),
+                    ScanState::Error(metadata) => Text::from(vec![
+                        Line::from(vec![
+                            Span::styled(
+                                "Couldn't scan directory due to this error: ",
+                                Style::default().fg(Color::Gray),
+                            ),
+                            Span::styled(
+                                format!("{}", metadata.message),
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        Line::from(
+                            vec![
+                            Span::styled(
+                                "Path selected: ",
+                                Style::default().fg(Color::Gray),
+                            ),
+                            Span::styled(
+                                format!("{:?}", metadata.path.as_deref().unwrap_or_default()),
+                                Style::default().fg(Color::Red))
+                            ]
+                        ),
+                    ]),
                     ScanState::Completed(_) => unreachable!(),
                 };
 
