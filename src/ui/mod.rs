@@ -132,7 +132,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                 let total = scan_result.scanned_entries.len();
                 let selected_count = app.selected_entries.len();
                 let actions = Paragraph::new(format!(
-                    " [Enter] toggle selection  [d] Delete selected  [a] Select all  [x] Deselect all  │  {}/{} selected",
+                    " [Enter] toggle selection [d] Delete selected [a] Select all [x] Deselect all │ {}/{} selected",
                     selected_count, total
                 ))
                 .style(Style::default().fg(Color::DarkGray));
@@ -176,7 +176,8 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                             app.data.selected_entry_dir, SPINNER_STATES[state_index]
                         )
                     }
-                    ScanState::Error => String::from("Couldn't scan due to an error."),
+                    // todo: display metadata
+                    ScanState::Error(_) => String::from("Couldn't scan due to an error."),
                     ScanState::Completed(_) => unreachable!(),
                 };
 
@@ -334,14 +335,14 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("   Selected: ", Style::default().fg(Color::Gray)),
+        Span::styled(" Selected: ", Style::default().fg(Color::Gray)),
         Span::styled(
             selected_size,
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("   SymLinks found: ", Style::default().fg(Color::Gray)),
+        Span::styled(" SymLinks found: ", Style::default().fg(Color::Gray)),
         Span::styled(
             symlinks,
             Style::default()
@@ -505,7 +506,7 @@ fn render_path_input_modal(frame: &mut Frame, app: &App, area: Rect) {
         };
         let search_label: String = "Path (absolute path)".to_string();
         let search_display = if app.path_input.query.is_empty() {
-            "   [Start typing path of the directory where you want to initiate the search]"
+            " [Start typing path of the directory where you want to initiate the search]"
                 .to_string()
         } else {
             format!(" {}", app.path_input.query)

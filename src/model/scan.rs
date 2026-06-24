@@ -18,11 +18,17 @@ pub struct ScanResult {
 }
 
 #[derive(PartialEq)]
+pub struct ErrorMetadata {
+    pub message: String,
+    pub path: Option<String>,
+}
+
+#[derive(PartialEq)]
 pub enum ScanState {
     Idle,
     Confirmation,
     InProgress,
-    Error,
+    Error(ErrorMetadata),
     Completed(ScanResult),
 }
 
