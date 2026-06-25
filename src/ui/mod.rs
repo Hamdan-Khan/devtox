@@ -184,7 +184,7 @@ fn render_scan_screen(frame: &mut Frame, app: &mut App, area: Rect) {
                                 Style::default().fg(Color::Gray),
                             ),
                             Span::styled(
-                                format!("{}", metadata.message),
+                                metadata.message.to_string(),
                                 Style::default()
                                     .fg(Color::Yellow)
                                     .add_modifier(Modifier::BOLD),

@@ -20,3 +20,6 @@ dev-tracing = ["dep:tracing-subscriber"]
 version = "0.3"
 optional = true
 features = ["env-filter"]
+
+[lints.clippy]
+all = "warn"

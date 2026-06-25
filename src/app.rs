@@ -258,9 +258,7 @@ impl App {
                                         // selected, so we let the user know and stop further scanning
 
                                         let metadata = ErrorMetadata {
-                                            message: format!(
-                                                "The selected directory was not found. Are you sure it exists?"
-                                            ),
+                                            message: "The selected directory was not found. Are you sure it exists?".to_string(),
                                             path: Some(path.to_string()),
                                         };
                                         let _ = tx.send(ScanState::Error(metadata));
@@ -496,24 +494,24 @@ impl App {
             }
             PanelFocus::Results => {
                 // to toggle entries in the scanned table
-                if let ScanState::Completed(result) = &self.scan_state {
-                    if let Some(row) = self.table_state.selected() {
-                        let query = self.search_input.query.to_lowercase();
-                        let found_entry = result
-                            .scanned_entries
-                            .iter()
-                            .filter(|entry| entry_matches_query(entry, &query))
-                            .nth(row);
-                        if let Some(curr) = found_entry {
-                            if self.selected_entries.contains(&curr.path) {
-                                self.selected_entries.remove(&curr.path);
-                                self.selected_size -= curr.size;
-                            } else {
-                                self.selected_entries.insert(curr.path.to_string());
-                                self.selected_size += curr.size;
-                            }
-                        };
-                    }
+                if let ScanState::Completed(result) = &self.scan_state
+                    && let Some(row) = self.table_state.selected()
+                {
+                    let query = self.search_input.query.to_lowercase();
+                    let found_entry = result
+                        .scanned_entries
+                        .iter()
+                        .filter(|entry| entry_matches_query(entry, &query))
+                        .nth(row);
+                    if let Some(curr) = found_entry {
+                        if self.selected_entries.contains(&curr.path) {
+                            self.selected_entries.remove(&curr.path);
+                            self.selected_size -= curr.size;
+                        } else {
+                            self.selected_entries.insert(curr.path.to_string());
+                            self.selected_size += curr.size;
+                        }
+                    };
                 }
             }
             PanelFocus::DeleteModal => {

@@ -1,15 +1,7 @@
+#[derive(Default)]
 pub struct InputState {
     pub query: String,
     pub char_index: usize,
-}
-
-impl Default for InputState {
-    fn default() -> Self {
-        Self {
-            query: String::new(),
-            char_index: 0,
-        }
-    }
 }
 
 impl InputState {

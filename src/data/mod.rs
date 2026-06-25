@@ -81,11 +81,11 @@ impl Data {
     fn save_config(&self) {
         if let Some(config_file_path) = Self::get_config_path() {
             // create parent directories if they don't exist
-            if let Some(parent) = config_file_path.parent() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    error!("Failed to create config directory: {}", e);
-                    return;
-                }
+            if let Some(parent) = config_file_path.parent()
+                && let Err(e) = std::fs::create_dir_all(parent)
+            {
+                error!("Failed to create config directory: {}", e);
+                return;
             }
 
             // creates the file if it doesn't exist, otherwise write to it
