@@ -58,7 +58,8 @@ impl Default for App {
 impl App {
     pub fn new() -> App {
         let languages = Language::all();
-        let initial_artifacts = languages[0].artifacts();
+        let data = Data::default();
+        let initial_artifacts = languages[0].artifacts(&data.custom_artifacts);
         let mut table_state = TableState::default();
         table_state.select_first();
         table_state.select_first_column();
@@ -78,7 +79,7 @@ impl App {
             selected_entries: HashSet::new(),
             selected_size: 0,
             delete_state: DeleteState::None,
-            data: Data::default(),
+            data,
             path_input: InputState::default(),
             artifact_input: InputState::default(),
         }
@@ -448,6 +449,8 @@ impl App {
             KeyCode::Enter => {
                 self.focus = PanelFocus::Artifacts;
                 self.data.add_artifact(self.artifact_input.query.clone());
+                // update artifact list to show the latest addition
+                self.refresh_artifacts();
                 self.artifact_input.clear();
             }
             KeyCode::Char(c) => self.artifact_input.enter_char(c),
@@ -610,7 +613,7 @@ impl App {
     // to repopulate artifact panel when selected language changes
     fn refresh_artifacts(&mut self) {
         if let Some(lang) = self.language_list.selected_item() {
-            self.artifact_list = StatefulList::new(lang.artifacts());
+            self.artifact_list = StatefulList::new(lang.artifacts(&self.data.custom_artifacts));
         }
     }
 }

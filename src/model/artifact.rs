@@ -12,6 +12,7 @@ pub enum ArtifactKind {
     Target,
     // Custom
     New, // todo: add more languages and dev artifacts
+    Custom(String),
 }
 
 impl ArtifactKind {
@@ -25,6 +26,7 @@ impl ArtifactKind {
             ArtifactKind::PycacheDir => "__pycache__",
             ArtifactKind::Target => "target",
             ArtifactKind::New => "+ New",
+            ArtifactKind::Custom(str) => str,
         }
     }
 }

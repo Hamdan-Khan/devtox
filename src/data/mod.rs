@@ -115,6 +115,10 @@ impl Data {
     }
 
     pub fn add_artifact(&mut self, artifact: String) {
+        // to dedup
+        if self.custom_artifacts.contains(&artifact) {
+            return;
+        }
         self.custom_artifacts.push(artifact);
         self.save_config();
     }

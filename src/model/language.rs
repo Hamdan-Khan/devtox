@@ -27,7 +27,7 @@ impl Language {
         }
     }
 
-    pub fn artifacts(&self) -> Vec<ArtifactKind> {
+    pub fn artifacts(&self, custom_artifcts: &Vec<String>) -> Vec<ArtifactKind> {
         match self {
             Language::Javascript => vec![
                 ArtifactKind::NodeModules,
@@ -36,7 +36,20 @@ impl Language {
                 ArtifactKind::DotEnv,
             ],
             Language::Python => vec![ArtifactKind::Venv, ArtifactKind::PycacheDir],
-            Language::Custom => vec![ArtifactKind::New],
+            Language::Custom => {
+                // the "New+" option at the beginning of the list
+                let mut custom = vec![ArtifactKind::New];
+
+                // convert string based custom artifacts into ArtifactKind
+                let mut artifacts: Vec<ArtifactKind> = custom_artifcts
+                    .iter()
+                    .map(|a| ArtifactKind::Custom(a.clone()))
+                    .collect();
+
+                custom.append(&mut artifacts);
+
+                custom
+            }
             Language::Rust => vec![ArtifactKind::Target],
         }
     }
