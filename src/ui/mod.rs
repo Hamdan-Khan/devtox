@@ -43,7 +43,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     render_artifacts(frame, app, artifact_area);
     render_scan_screen(frame, app, results_area);
     render_stats(frame, app, stats_area);
-    render_input_modal(frame, app, area);
+    render_artifact_input_modal(frame, app, area);
     render_deletion_modal(frame, app, area);
     render_path_input_modal(frame, app, area);
 }
@@ -579,17 +579,74 @@ fn render_path_input_modal(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_input_modal(frame: &mut Frame, app: &App, area: Rect) {
-    if app.show_input_modal {
-        let focused = app.focus == PanelFocus::InputModal;
-        let popup_block = styled_block("Create custom search artifact", focused);
-        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Percentage(40));
-        // clears out any background in the area before rendering the popup
+fn render_artifact_input_modal(frame: &mut Frame, app: &App, area: Rect) {
+    if app.focus == PanelFocus::ArtifactInputModal {
+        let popup_block = styled_block("Create custom search artifact", true);
+        let centered_area = area.centered(Constraint::Percentage(60), Constraint::Max(8));
         frame.render_widget(Clear, centered_area);
-        let paragraph = Paragraph::new("todo: input")
-            .block(popup_block)
-            .style(Style::default().bg(Color::Rgb(46, 46, 46)));
-        frame.render_widget(paragraph, centered_area);
+
+        // input + button bar
+        let layout = Layout::vertical([Constraint::Length(3), Constraint::Length(3)])
+            .split(popup_block.inner(centered_area));
+
+        // outer block
+        frame.render_widget(
+            Block::default()
+                .style(Style::default().bg(Color::Rgb(46, 46, 46)))
+                .borders(Borders::ALL),
+            centered_area,
+        );
+        frame.render_widget(popup_block, centered_area);
+
+        // artifact name input
+        let input_style = if app.artifact_input.query.is_empty() {
+            Style::default().fg(Color::Gray)
+        } else {
+            Style::default().fg(Color::Yellow)
+        };
+        let input_label = "Custom directory name".to_string();
+        let input_display = if app.artifact_input.query.is_empty() {
+            " [Enter custom directory name]".to_string()
+        } else {
+            format!(" {}", app.artifact_input.query)
+        };
+        let input_bar = Paragraph::new(input_display)
+            .style(input_style)
+            .block(Block::bordered().title(input_label));
+        frame.render_widget(input_bar, layout[0]);
+
+        // cursor
+        let x_pos: u16 = if app.artifact_input.query.is_empty() {
+            layout[0].x + 1
+        } else {
+            layout[0].x + app.artifact_input.char_index as u16 + 2
+        };
+        frame.set_cursor_position(Position::new(x_pos, layout[0].y + 1));
+
+        // buttons
+        let button_layout =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(layout[1]);
+
+        let cancel_button = Paragraph::new("Cancel, don't add [Esc]")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)),
+            )
+            .style(Style::default().fg(Color::Red));
+
+        let update_button = Paragraph::new("Save, add directory [Enter]")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green)),
+            )
+            .style(Style::default().fg(Color::Green));
+
+        frame.render_widget(cancel_button, button_layout[0]);
+        frame.render_widget(update_button, button_layout[1]);
     }
 }
 

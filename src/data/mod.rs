@@ -114,8 +114,8 @@ impl Data {
         self.save_config();
     }
 
-    pub fn update_artifacts(&mut self, artifacts: Vec<String>) {
-        self.custom_artifacts = artifacts;
+    pub fn add_artifact(&mut self, artifact: String) {
+        self.custom_artifacts.push(artifact);
         self.save_config();
     }
 }

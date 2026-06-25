@@ -38,7 +38,6 @@ pub struct App {
     scan_recv: Option<Receiver<ScanState>>,
     delete_recv: Option<Receiver<DeleteState>>,
     pub tick: u64,
-    pub show_input_modal: bool,
     pub table_state: TableState,
     pub search_input: InputState,
     pub search_focused: bool,
@@ -47,6 +46,7 @@ pub struct App {
     pub delete_state: DeleteState,
     pub data: Data,
     pub path_input: InputState,
+    pub artifact_input: InputState,
 }
 
 impl Default for App {
@@ -72,7 +72,6 @@ impl App {
             scan_recv: None,
             delete_recv: None,
             tick: 0,
-            show_input_modal: false,
             table_state,
             search_input: InputState::default(),
             search_focused: false,
@@ -81,6 +80,7 @@ impl App {
             delete_state: DeleteState::None,
             data: Data::default(),
             path_input: InputState::default(),
+            artifact_input: InputState::default(),
         }
     }
 
@@ -104,6 +104,8 @@ impl App {
                     self.handle_input_keys(key);
                 } else if self.focus == PanelFocus::PathInputModal {
                     self.handle_path_input_keys(key);
+                } else if self.focus == PanelFocus::ArtifactInputModal {
+                    self.handle_artifact_input_keys(key);
                 } else {
                     match key.code {
                         KeyCode::Char('q') => self.exit = true,
@@ -436,6 +438,26 @@ impl App {
         }
     }
 
+    fn handle_artifact_input_keys(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.focus = PanelFocus::Artifacts;
+                // flush input
+                self.artifact_input.clear();
+            }
+            KeyCode::Enter => {
+                self.focus = PanelFocus::Artifacts;
+                self.data.add_artifact(self.artifact_input.query.clone());
+                self.artifact_input.clear();
+            }
+            KeyCode::Char(c) => self.artifact_input.enter_char(c),
+            KeyCode::Left => self.artifact_input.move_cursor_left(),
+            KeyCode::Right => self.artifact_input.move_cursor_right(),
+            KeyCode::Backspace => self.artifact_input.delete_search_char(),
+            _ => {}
+        }
+    }
+
     fn open_deletion_modal(&mut self) {
         if let ScanState::Completed(_) = &self.scan_state
             && !self.selected_entries.is_empty()
@@ -485,8 +507,7 @@ impl App {
                 if let Some(selected_artifact) = self.artifact_list.selected_item() {
                     // to create custom artifact
                     if *selected_artifact == ArtifactKind::New {
-                        self.show_input_modal = true;
-                        self.focus = PanelFocus::InputModal
+                        self.focus = PanelFocus::ArtifactInputModal
                     } else {
                         self.focus = PanelFocus::Results;
                     }
@@ -525,12 +546,11 @@ impl App {
     }
 
     fn handle_esc_key(&mut self) {
-        // esc shouldn't work when scanning (or deletion when we later add it) is in progress
+        // esc shouldn't work when scanning or deletion is in progress
         if self.focus == PanelFocus::Results && self.scan_state != ScanState::InProgress {
             self.focus = PanelFocus::Languages;
             self.scan_state = ScanState::Idle;
-        } else if self.focus == PanelFocus::InputModal {
-            self.show_input_modal = false;
+        } else if self.focus == PanelFocus::ArtifactInputModal {
             self.focus = PanelFocus::Artifacts
         }
     }
@@ -541,7 +561,7 @@ impl App {
             PanelFocus::Languages => PanelFocus::Artifacts,
             PanelFocus::Artifacts => PanelFocus::Languages,
             PanelFocus::Results => PanelFocus::Results,
-            PanelFocus::InputModal => PanelFocus::InputModal,
+            PanelFocus::ArtifactInputModal => PanelFocus::ArtifactInputModal,
             PanelFocus::DeleteModal => PanelFocus::DeleteModal,
             PanelFocus::PathInputModal => PanelFocus::PathInputModal,
         };

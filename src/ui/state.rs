@@ -40,7 +40,7 @@ pub enum PanelFocus {
     Languages,
     Artifacts,
     Results,
-    InputModal,
+    ArtifactInputModal,
     DeleteModal,
     PathInputModal,
 }
