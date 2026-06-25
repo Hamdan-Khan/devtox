@@ -29,7 +29,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // split entire layout horizontally into two parts: left panels section and main section
     let [sidebar, main] =
-        Layout::horizontal([Constraint::Percentage(15), Constraint::Fill(1)]).areas(area);
+        Layout::horizontal([Constraint::Percentage(20), Constraint::Fill(1)]).areas(area);
 
     // split left section vertically: language panel (top) and artifact panel (bottom)
     let [lang_area, artifact_area] =
@@ -72,11 +72,7 @@ fn render_languages(frame: &mut Frame, app: &App, area: Rect) {
 fn render_artifacts(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == PanelFocus::Artifacts;
 
-    let title = app
-        .language_list
-        .selected_item()
-        .map(|l| format!("{} artifacts", l.display_name()))
-        .unwrap_or_else(|| "Artifacts".to_string());
+    let title = String::from("Artifacts");
 
     let items: Vec<ListItem> = app
         .artifact_list

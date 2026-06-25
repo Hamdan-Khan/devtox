@@ -198,6 +198,9 @@ impl App {
                     .scanned_entries
                     .retain(|e| !deleted.contains(&e.path));
 
+                // remove deleted entries from selected entries state
+                self.selected_entries.retain(|e| !deleted.contains(e));
+
                 result.total_size = result.scanned_entries.iter().map(|x| x.size).sum();
 
                 self.selected_size = result
